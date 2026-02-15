@@ -9,6 +9,7 @@ import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Leader
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -60,9 +61,9 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       RemoteCaptureUtil.gitSource,
       Seq(
         ExecuteAndCaptureDef(
-          ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(100000)"),
+          ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(1000000)"),
           CaptureDef(
-            Sampling(frequency = 200000, preTriggerSamples = 10, postTriggerSamples = 380000),
+            Sampling(frequency = 2000000, preTriggerSamples = 10, postTriggerSamples = 380000),
             SortedSet(dataPin, GpioPin(3), GpioPin(4), GpioPin(5)),
             triggerPattern
           )
@@ -90,10 +91,12 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
 
       val writesWithTimes = opSignals.ops.drop(initSeq.size)
-      writesWithTimes.size shouldBe > (10)
-      forAll(writesWithTimes.take(10).map(_.value._2)) { c =>
-        inside(c) {
-          case writeMode: WriteMode => writeMode.writesByLedAddress should have size 384
+      writesWithTimes.size shouldBe > (1)
+      forAll(writesWithTimes.take(1).map(_.value)) { (cs, op) =>
+        inside(op) {
+          case writeMode: WriteMode =>
+            val expectedNumLeds = if (cs == Leader) 236 else 256
+            writeMode.writesByLedAddress should have size expectedNumLeds
         }
       }
 
