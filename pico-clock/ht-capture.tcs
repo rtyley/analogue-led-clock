@@ -1,0 +1,36 @@
+{
+  "Frequency": 50000000,
+  "PreTriggerSamples": 512,
+  "PostTriggerSamples": 196000,
+  "TotalSamples": 196512,
+  "LoopCount": 0,
+  "MeasureBursts": false,
+  "CaptureChannels": [
+    {
+      "ChannelNumber": 8,
+      "ChannelName": "Data",
+      "Hidden": false
+    },
+    {
+      "ChannelNumber": 9,
+      "ChannelName": "Write",
+      "Hidden": false
+    },
+    {
+      "ChannelNumber": 10,
+      "ChannelName": "CS1",
+      "Hidden": false
+    },
+    {
+      "ChannelNumber": 11,
+      "ChannelName": "CS2",
+      "Hidden": false
+    }
+  ],
+  "Bursts": null,
+  "TriggerType": 1,
+  "TriggerChannel": 9,
+  "TriggerInverted": true,
+  "TriggerBitCount": 3,
+  "TriggerPattern": 5
+}
