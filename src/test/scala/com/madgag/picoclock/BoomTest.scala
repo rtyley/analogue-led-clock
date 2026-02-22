@@ -9,21 +9,18 @@ import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
-import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Leader
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.OpenDrain.PMOS
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.Setting.OffOn.{Off, On}
-import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.Setting.Switchable
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.Setting.Switchable.{Blink, LedDutyCycleGenerator, SystemOscillator}
-import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.{COM, PWM, Setting, SyncRole}
+import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.{COM, PWM, SyncRole}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.DataOperation.WriteMode
-import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.signals.TimingCharacteristics
-import com.madgag.logic.protocol.holtek.ht1632c.{Channel, HoltekBits}
+import com.madgag.logic.protocol.holtek.ht1632c.{Channel, ChipLed, HoltekBits}
 import com.madgag.logic.time.Time.*
-import com.madgag.logic.time.TimedF.{dropTime, given}
+import com.madgag.logic.time.TimedF.given
 import com.madgag.logic.time.{Time, TimeParser, Timed, TimedF}
 import com.madgag.micropython.logiccapture.model.*
 import com.madgag.picoclock.RemoteCaptureUtil.{deviceFS, remoteCaptureClient}
@@ -36,8 +33,7 @@ import org.scalatest.matchers.should
 import org.scalatest.time.{Millis, Seconds, Span}
 import scodec.bits.BitVector
 
-import java.time.temporal.ChronoUnit
-import java.time.temporal.ChronoUnit.{MICROS, NANOS}
+import java.time.temporal.ChronoUnit.MICROS
 import scala.collection.immutable.SortedSet
 
 class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with ScalaFutures {
@@ -67,7 +63,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
         ExecuteAndCaptureDef(
           ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(5000000)"),
           CaptureDef(
-            Sampling(frequency = 5000000*4, preTriggerSamples = 10, postTriggerSamples = 380000),
+            Sampling(frequency = 5000000*2, preTriggerSamples = 10, postTriggerSamples = 380000),
             SortedSet(dataPin, GpioPin(3), GpioPin(4), GpioPin(5)),
             triggerPattern
           )
@@ -91,6 +87,10 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       val (initiationCommands, writeCommands) = chipOps.splitAt(initSeq.size)
 
       initiationCommands.dropTime shouldBe initSeq
+
+      val ledStates: ChannelSignals[Delta, ChipLed] = HoltekBits.ledStatesFromWriteSignalsIn(writeCommands)
+
+      val changingLights = ledStates.data.filter(!_._2.isConstant).toSeq.sortBy(_._2.goingTo(true).headOption)
 
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>

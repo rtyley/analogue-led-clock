@@ -11,6 +11,12 @@ def exec_with(freq: int):
     ac.initialise()
     # ac._write_mode_buffer.correctness_test()
     while True:
-        for hour in range(12):
-            for min in range(60):
-                ac.light_time(hour, min)
+        for led_id in range(233, 241):
+            ac._write_mode_buffer.write_pixel(led_id, True)
+            ac.transmit_write_mode_buffer()
+            ac._write_mode_buffer.write_pixel(led_id, False)
+            ac.transmit_write_mode_buffer()
+        # for hour in range(12):
+        #     for min in range(60):
+        # ac.light_center(True)
+        # ac.light_center(False)
