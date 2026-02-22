@@ -9,7 +9,8 @@ def exec_with(freq: int):
 
     ac = AnalogueClock(HT1632C(base_pin_index=2, state_machine_id=0, freq = freq))
     ac.initialise()
-
+    # ac._write_mode_buffer.correctness_test()
     while True:
-        for phase in range(10):
-            ac.light_pixel_identification_step(phase)
+        for hour in range(12):
+            for min in range(60):
+                ac.light_time(hour, min)

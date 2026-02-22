@@ -9,6 +9,7 @@ import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Leader
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -18,6 +19,7 @@ import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.Setting.Switc
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.Setting.Switchable.{Blink, LedDutyCycleGenerator, SystemOscillator}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.{COM, PWM, Setting, SyncRole}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.DataOperation.WriteMode
+import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.signals.TimingCharacteristics
 import com.madgag.logic.protocol.holtek.ht1632c.{Channel, HoltekBits}
 import com.madgag.logic.time.Time.*
@@ -44,6 +46,8 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
     interval = scaled(Span(500, Millis))
   )
 
+  val MaxPIOStateMachineFrequencyForHT1632C = 10000000 // ????
+
   private val dataPin = GpioPin(2)
 
   val gpioMapping = ChannelMapping(
@@ -60,9 +64,9 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       RemoteCaptureUtil.gitSource,
       Seq(
         ExecuteAndCaptureDef(
-          ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(100000)"),
+          ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(5000000)"),
           CaptureDef(
-            Sampling(frequency = 200000, preTriggerSamples = 10, postTriggerSamples = 380000),
+            Sampling(frequency = 5000000*4, preTriggerSamples = 10, postTriggerSamples = 380000),
             SortedSet(dataPin, GpioPin(3), GpioPin(4), GpioPin(5)),
             triggerPattern
           )
@@ -77,27 +81,26 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
         case (key, value) => key.name + ":\n\t" + value.toSeq.take(3).map(_.summary).mkString(", ")
       }.mkString("\n"))
       require(anomaliesByCriterion.isEmpty)
-      val opSignals: TimedDistributedOperations[Delta] = HoltekBits.operationsFor(deglitchedSignal)
+      val opSignals: ChipSeq[Timed[Delta, OperationSignals[Delta]]] = HoltekBits.operationsFor(deglitchedSignal)
+      val chipOps: ChipSeq[Timed[Delta, Operation]] = opSignals.flatTraverseChipVal(_.operation)
 
-      val initSeq: Seq[(ChipSelect, CommandMode)] =
+      val initSeq: ChipSeq[CommandMode] =
         initSequence(ChipSelect.Leader, SyncRole.RCLeader).zip(initSequence(ChipSelect.Follower.One, SyncRole.Follower)).flatMap { (x, y) => Seq(x, y) }
 
-      val (initiationCommands, writeCommands) = opSignals.mapK(dropTime).ops.splitAt(initSeq.size)
+      val (initiationCommands, writeCommands) = chipOps.splitAt(initSeq.size)
 
-      initiationCommands shouldBe initSeq
+      initiationCommands.dropTime shouldBe initSeq
 
-      val opSignalsReally = operationsFor(deglitchedSignal)
-
-
-      val writesWithTimes = opSignals.ops.drop(initSeq.size)
-      writesWithTimes.size shouldBe > (10)
-      forAll(writesWithTimes.take(10).map(_.value._2)) { c =>
-        inside(c) {
-          case writeMode: WriteMode => writeMode.writesByLedAddress should have size 384
+      val justWrites = writeCommands.dropTime
+      forAll(justWrites.take(1)) { chipVal =>
+        inside(chipVal.value) {
+          case writeMode: WriteMode =>
+            val expectedNumLeds = if (chipVal.chipSelect == ChipSelect.Leader) 236 else 256
+            writeMode.writesByLedAddress should have size expectedNumLeds
         }
       }
 
-      val startTimes = writesWithTimes.map(_.interval.lowerValueBound.a)
+      val startTimes = writeCommands.map(_.value).map(_.interval.lowerValueBound.a)
       val durations = startTimes.zip(startTimes.tail).map(Time.between)
       println(durations.map(_.format(1, NANOS)))
     }
@@ -110,13 +113,13 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       boundedInterval <- opSignal.interval.toBoundedIntervalOpt.toSeq
     } yield Timed(boundedInterval, chipSelectChannel -> opSignal)).sortBy(_.interval.lowerValueBound.a)
 
-  def initSequence(chipSelect: ChipSelect, syncRole: SyncRole): Seq[(ChipSelect, CommandMode)] = Seq(
+  def initSequence(chipSelect: ChipSelect, syncRole: SyncRole): ChipSeq[CommandMode] = Seq(
     CommandMode(SystemOscillator(Off), COM(PMOS, `24x16`), syncRole, SystemOscillator(On), PWM(16), Blink(Off), LedDutyCycleGenerator(Off)),
     CommandMode(LedDutyCycleGenerator(Off)),
     CommandMode(SystemOscillator(Off)),
     CommandMode(SystemOscillator(On)),
     CommandMode(LedDutyCycleGenerator(On))
-  ).map(chipSelect -> _)
+  ).map(command => ChipVal(chipSelect, command))
 
   private def writeOutFileForReference(deglitchedSignal: ChannelSignals[Delta, Channel]): Unit = {
     val tmpFile = os.temp(deleteOnExit = false).toIO
