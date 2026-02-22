@@ -9,6 +9,7 @@ import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Leader
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -92,6 +93,12 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
       val changingLights = ledStates.data.filter(!_._2.isConstant).toSeq.sortBy(_._2.goingTo(true).headOption)
 
+      val updates: Seq[Timed[Delta, Map[ChipSelect, Operation]]] = writeCommands.groupTimedByUpdate
+
+      val startTimes = updates.map(_.interval.lowerValueBound.a)
+      val durations = startTimes.zip(startTimes.tail).map(Time.between)
+      println(durations.map(_.truncatedTo(MICROS).format(2)))
+
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>
         inside(chipVal.value) {
@@ -101,9 +108,6 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
         }
       }
 
-      val startTimes = writeCommands.map(_.value).map(_.interval.lowerValueBound.a)
-      val durations = startTimes.zip(startTimes.tail).map(Time.between)
-      println(durations.map(_.truncatedTo(MICROS).format(2)))
     }
   }
 
