@@ -42,6 +42,8 @@ class MultiChipWriteBuffer:
 
     def set_only(self, led_list: list[int]):
         led_list_index = 0
+        num_leds_set = len(led_list)
+
         for byte_metadata_index in range(self.bitfield_bytes_required):
             high_exc = self.highs[byte_metadata_index]
             low_inc = self.lows[byte_metadata_index]
@@ -52,9 +54,9 @@ class MultiChipWriteBuffer:
                 current_bits = self.raw_bytearray[byte_index]
                 bit_value = current_bits & background_mask
                 # print(f"{byte_metadata_index}: {high_exc}-{low_inc} ({background_mask:08b}) : {current_bits:08b} {bit_value:08b}")
-                if led_list_index < len(led_list) and led_list[led_list_index] < base_led_index_for_byte + 8:
+                if led_list_index < num_leds_set and led_list[led_list_index] < base_led_index_for_byte + 8:
                     for bit_index in range(low_inc, high_exc):
-                        if led_list_index < len(led_list) and base_led_index_for_byte + bit_index == led_list[led_list_index]:
+                        if led_list_index < num_leds_set and base_led_index_for_byte + bit_index == led_list[led_list_index]:
                             led_list_index += 1
                             bit_value += 1 << (7-bit_index)
                 self.raw_bytearray[byte_index] = bit_value

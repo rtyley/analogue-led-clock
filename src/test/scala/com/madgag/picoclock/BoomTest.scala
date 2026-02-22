@@ -36,7 +36,8 @@ import org.scalatest.matchers.should
 import org.scalatest.time.{Millis, Seconds, Span}
 import scodec.bits.BitVector
 
-import java.time.temporal.ChronoUnit.NANOS
+import java.time.temporal.ChronoUnit
+import java.time.temporal.ChronoUnit.{MICROS, NANOS}
 import scala.collection.immutable.SortedSet
 
 class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with ScalaFutures {
@@ -102,7 +103,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
       val startTimes = writeCommands.map(_.value).map(_.interval.lowerValueBound.a)
       val durations = startTimes.zip(startTimes.tail).map(Time.between)
-      println(durations.map(_.format(1, NANOS)))
+      println(durations.map(_.truncatedTo(MICROS).format(2)))
     }
   }
 
