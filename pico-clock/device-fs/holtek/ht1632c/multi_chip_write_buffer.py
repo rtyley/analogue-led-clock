@@ -8,6 +8,7 @@ class ByteBitfield:
         self.high_exc = high_exc
         self.base_led_index_for_byte = base_led_index_for_byte
         self.background_mask = 0xFF & ~((1 << (8-low_inc)) - (1 << (8-high_exc)))
+        self.bit_range = range(low_inc, high_exc)
 
 
 class MultiChipWriteBuffer:
@@ -64,7 +65,7 @@ class MultiChipWriteBuffer:
                 byte_index = byte_metadata_index + self.header_bytes_required
                 bit_value = self.raw_bytearray[byte_index] & byte_bitfield.background_mask
                 if led_list_index < num_leds_set and led_list[led_list_index] < base_led_index_for_byte + 8:
-                    for bit_index in range(byte_bitfield.low_inc, byte_bitfield.high_exc):
+                    for bit_index in byte_bitfield.bit_range:
                         if led_list_index < num_leds_set and base_led_index_for_byte + bit_index == led_list[led_list_index]:
                             led_list_index += 1
                             bit_value += 1 << (7-bit_index)
