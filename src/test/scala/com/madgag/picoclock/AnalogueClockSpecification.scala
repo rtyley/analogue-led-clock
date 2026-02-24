@@ -3,8 +3,14 @@ package com.madgag.picoclock
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.{Follower, Leader}
 import com.madgag.logic.protocol.holtek.ht1632c.{ChipLed, LedAddress}
+import com.madgag.scala.collection.decorators.*
 
 import scala.collection.immutable.SortedMap
+
+case class DisplayTime(hour: Int, minute: Int) {
+  require(hour >=0 && hour < 12)
+  require(minute >=0 && minute < 60)
+}
 
 object AnalogueClockSpecification {
   val chipBitfieldSize: SortedMap[ChipSelect, Int] = SortedMap(Leader -> 236, Follower.One -> 256)
@@ -27,7 +33,7 @@ object AnalogueClockSpecification {
     ledOffsetWithinChipFrom(chipLed.ledAddress) + baseOffsetByChip(chipLed.chipSelect)
 
   val centerLed: ChipLed = chipLedFrom(233)
-  
+
   val handLeds: Seq[Seq[ChipLed]] = Seq(
     Seq(244,242,241,240,239,238,237,236),
     Seq(245,258,257,256,255,254,253,252),
@@ -92,11 +98,22 @@ object AnalogueClockSpecification {
   ).map(_.map(chipLedFrom))
 
   val hourMarkerLeds: Seq[ChipLed] = handLeds.grouped(5).map(_.head.last).toSeq
-  
+
   val baseDisplayLeds: Set[ChipLed] = (hourMarkerLeds :+ centerLed).toSet
-  
+
   val hourHandLength = 5
-  
+
   def ledsFor(hour: Int, minute: Int): Set[ChipLed] =
-    baseDisplayLeds ++ handLeds(math.round((((hour % 12) * 60) + minute) / 12)).take(hourHandLength) ++ handLeds(minute)
+    baseDisplayLeds ++ handLeds(math.round((((hour % 12) * 60) + minute) / 12f)).take(hourHandLength) ++ handLeds(minute)
+
+  def handsFor(chipLeds: Set[ChipLed]): Map[Int, Set[ChipLed]] =
+    (chipLeds -- baseDisplayLeds).groupBy(cl => handLeds.indexWhere(_.contains(cl)))
+
+  def displayTimeFor(chipLeds: Set[ChipLed]): Option[DisplayTime] = {
+    val hands: Map[Int, Int] = handsFor(chipLeds).mapV(_.size)
+    for {
+      hourHand <- hands.find(_._2 >= hourHandLength).minByOption(_._2).map(_._1)
+      minute <- hands.find(_._2 >= 7).map(_._1) if hands.keySet == Set(hourHand, minute)
+    } yield DisplayTime(hourHand / 12, minute)
+  }
 }

@@ -44,7 +44,7 @@ class MultiChipWriteBuffer:
         led_list_index = 0
         num_leds_set = len(led_list)
 
-        for byte_metadata_index in range(self.bitfield_bytes_required):
+        for byte_metadata_index in range(self.header_bytes_required, self.bitfield_bytes_required):
             high_exc = self.highs[byte_metadata_index]
             low_inc = self.lows[byte_metadata_index]
             if high_exc > low_inc:
