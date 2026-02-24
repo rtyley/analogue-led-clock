@@ -57,14 +57,12 @@ class MultiChipWriteBuffer:
         led_list_index = 0
         num_leds_set = len(led_list)
 
-        for byte_metadata_index in range(self.bitfield_bytes_required):
+        for byte_metadata_index in range(self.bitfield_bytes_required): # enumerate is slow
             byte_bitfield = self.byte_bitfields[byte_metadata_index]
             if byte_bitfield.high_exc > byte_bitfield.low_inc:
                 base_led_index_for_byte = byte_bitfield.base_led_index_for_byte
                 byte_index = byte_metadata_index + self.header_bytes_required
-                current_bits = self.raw_bytearray[byte_index]
-                bit_value = current_bits & byte_bitfield.background_mask
-                # print(f"{byte_metadata_index}: {high_exc}-{low_inc} ({background_mask:08b}) : {current_bits:08b} {bit_value:08b}")
+                bit_value = self.raw_bytearray[byte_index] & byte_bitfield.background_mask
                 if led_list_index < num_leds_set and led_list[led_list_index] < base_led_index_for_byte + 8:
                     for bit_index in range(byte_bitfield.low_inc, byte_bitfield.high_exc):
                         if led_list_index < num_leds_set and base_led_index_for_byte + bit_index == led_list[led_list_index]:
