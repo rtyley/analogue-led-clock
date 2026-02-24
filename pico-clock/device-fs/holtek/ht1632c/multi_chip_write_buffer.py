@@ -7,6 +7,7 @@ class ByteBitfield:
         self.low_inc = low_inc
         self.high_exc = high_exc
         self.base_led_index_for_byte = base_led_index_for_byte
+        self.top_led_index_for_byte = base_led_index_for_byte + 7
         self.background_mask = 0xFF & ~((1 << (8-low_inc)) - (1 << (8-high_exc)))
         self.bit_range = range(low_inc, high_exc)
 
@@ -61,14 +62,15 @@ class MultiChipWriteBuffer:
         for byte_metadata_index in range(self.bitfield_bytes_required): # enumerate is slow
             byte_bitfield = self.byte_bitfields[byte_metadata_index]
             if byte_bitfield.high_exc > byte_bitfield.low_inc:
-                base_led_index_for_byte = byte_bitfield.base_led_index_for_byte
+                top_led_index_for_byte = byte_bitfield.top_led_index_for_byte
                 byte_index = byte_metadata_index + self.header_bytes_required
                 bit_value = self.raw_bytearray[byte_index] & byte_bitfield.background_mask
-                if led_list_index < num_leds_set and led_list[led_list_index] < base_led_index_for_byte + 8:
+                if led_list_index < num_leds_set and led_list[led_list_index] <= top_led_index_for_byte:
                     for bit_index in byte_bitfield.bit_range:
-                        if led_list_index < num_leds_set and base_led_index_for_byte + bit_index == led_list[led_list_index]:
+                        reverse_bit_index = 7-bit_index
+                        if led_list_index < num_leds_set and top_led_index_for_byte - reverse_bit_index == led_list[led_list_index]:
                             led_list_index += 1
-                            bit_value += 1 << (7-bit_index)
+                            bit_value += 1 << reverse_bit_index
                 self.raw_bytearray[byte_index] = bit_value
 
     def write_pixel(self, led_id: int, value: bool):
