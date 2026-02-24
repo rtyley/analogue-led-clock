@@ -2,6 +2,13 @@
 from holtek.ht1632c.buffer_utils import pack_num_bits, pack_bitvector
 from holtek.ht1632c.operations import WriteMode
 
+class ByteBitfield:
+    def __init__(self, low_inc: int, high_exc: list, base_led_index_for_byte: int):
+        self.low_inc = low_inc
+        self.high_exc = high_exc
+        self.base_led_index_for_byte = base_led_index_for_byte
+
+
 class MultiChipWriteBuffer:
     def __init__(self, pixels_per_chip: list[int]):
         assert(not any(chip_pixels % 4 != 0 for chip_pixels in pixels_per_chip))
@@ -28,34 +35,38 @@ class MultiChipWriteBuffer:
             self._pixel_base_bit_offset_per_chip[chip_index] = absolute_bit_offset + num_write_mode_header_bits
             absolute_bit_offset += (num_chip_bits)
 
-        self.lows = [8] * self.bitfield_bytes_required
-        self.highs = [0] * self.bitfield_bytes_required
-        self.base_led_index_for_bytes = [0] * self.bitfield_bytes_required
+        lows = [8] * self.bitfield_bytes_required
+        highs = [0] * self.bitfield_bytes_required
+        base_led_index_for_bytes = [0] * self.bitfield_bytes_required
 
         for led_id in range(self.total_pixels):
             bo = self.absolute_bit_offset_for_led_id(led_id)
             byte_metadata_index = (bo // 8) - self.header_bytes_required
             bit_index = bo % 8
-            self.lows[byte_metadata_index] = min(self.lows[byte_metadata_index], bit_index)
-            self.highs[byte_metadata_index] = max(self.highs[byte_metadata_index], bit_index + 1)
-            self.base_led_index_for_bytes[byte_metadata_index] = led_id - bit_index
+            lows[byte_metadata_index] = min(lows[byte_metadata_index], bit_index)
+            highs[byte_metadata_index] = max(highs[byte_metadata_index], bit_index + 1)
+            base_led_index_for_bytes[byte_metadata_index] = led_id - bit_index
+
+        self.byte_bitfields = [
+            ByteBitfield(lows[index], highs[index], base_led_index_for_bytes[index]) for index in range(self.bitfield_bytes_required)
+        ]
+
 
     def set_only(self, led_list: list[int]):
         led_list_index = 0
         num_leds_set = len(led_list)
 
-        for byte_metadata_index in range(self.header_bytes_required, self.bitfield_bytes_required):
-            high_exc = self.highs[byte_metadata_index]
-            low_inc = self.lows[byte_metadata_index]
-            if high_exc > low_inc:
-                base_led_index_for_byte = self.base_led_index_for_bytes[byte_metadata_index]
+        for byte_metadata_index in range(self.bitfield_bytes_required):
+            byte_bitfield = self.byte_bitfields[byte_metadata_index]
+            if byte_bitfield.high_exc > byte_bitfield.low_inc:
+                base_led_index_for_byte = byte_bitfield.base_led_index_for_byte
                 byte_index = byte_metadata_index + self.header_bytes_required
-                background_mask = 0xFF & ~((1 << (8-low_inc)) - (1 << (8-high_exc)))
+                background_mask = 0xFF & ~((1 << (8-byte_bitfield.low_inc)) - (1 << (8-byte_bitfield.high_exc)))
                 current_bits = self.raw_bytearray[byte_index]
                 bit_value = current_bits & background_mask
                 # print(f"{byte_metadata_index}: {high_exc}-{low_inc} ({background_mask:08b}) : {current_bits:08b} {bit_value:08b}")
                 if led_list_index < num_leds_set and led_list[led_list_index] < base_led_index_for_byte + 8:
-                    for bit_index in range(low_inc, high_exc):
+                    for bit_index in range(byte_bitfield.low_inc, byte_bitfield.high_exc):
                         if led_list_index < num_leds_set and base_led_index_for_byte + bit_index == led_list[led_list_index]:
                             led_list_index += 1
                             bit_value += 1 << (7-bit_index)
