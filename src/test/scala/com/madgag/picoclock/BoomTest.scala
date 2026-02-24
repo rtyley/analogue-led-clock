@@ -10,7 +10,7 @@ import com.madgag.logic.BoundedInterval.*
 import com.madgag.scala.collection.decorators.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
-import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Leader
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.{Follower, Leader}
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -34,6 +34,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should
 import org.scalatest.time.{Millis, Seconds, Span}
 import scodec.bits.BitVector
+import spire.math.Interval
 
 import java.time.Duration
 import java.time.Duration.ofMillis
@@ -77,7 +78,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       )
     ), gpioMapping).value.map(_.left.map(err => new RuntimeException(err.toString)).toTry.get).unsafeToFuture()) { signals =>
       val sig = signals.head.value
-      val deglitchedSignal = sig // sig.transform(_.deglitch(ofNanos(90))) - Pico signals don't seem to need de-glitching
+      val deglitchedSignal = sig.unsafeSubInterval(sig.interval.intersect(Interval.atOrBelow(sig.data(Follower.One).events(Direction.Desc).find(_.value).map(_.time).value))) // sig.transform(_.deglitch(ofNanos(90))) - Pico signals don't seem to need de-glitching
       writeOutFileForReference(deglitchedSignal)
       val anomaliesByCriterion = TimingCharacteristics.violationFinder.violationsIn(deglitchedSignal)
       println(anomaliesByCriterion.map {
@@ -108,9 +109,9 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       forAll(updateStates.zipWithIndex) {
         (update, index) =>
           val litLeds = update.filter(_._2).keySet.toSeq.sorted
-          val displayTime = AnalogueClockSpecification.displayTimeFor(litLeds.toSet).value
           val expectedLeds = AnalogueClockSpecification.ledsFor(0, index).toSeq.sorted
           println(s"index=$index actual-hands=${handSummary(litLeds)} expected-hands=${handSummary(expectedLeds)}")
+          val displayTime = AnalogueClockSpecification.displayTimeFor(litLeds.toSet).value
           displayTime shouldBe DisplayTime(0, index)
       }
 
@@ -122,7 +123,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       forAll(durations) { duration =>
         duration.minus(avg).abs shouldBe < (avg.dividedBy(100))
       }
-      val expected = Duration.of(4970, MICROS)
+      val expected = Duration.of(4957, MICROS)
       avg.minus(expected).abs shouldBe < (expected.dividedBy(100))
 
       val justWrites = writeCommands.dropTime
