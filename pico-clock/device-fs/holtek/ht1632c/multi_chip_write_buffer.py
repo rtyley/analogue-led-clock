@@ -4,12 +4,10 @@ from holtek.ht1632c.operations import WriteMode
 
 class ByteBitfield:
     def __init__(self, low_inc: int, high_exc: list, base_led_index_for_byte: int):
-        self.low_inc = low_inc
-        self.high_exc = high_exc
+        self.active_bit_range = high_exc > low_inc
         self.base_led_index_for_byte = base_led_index_for_byte
         self.background_mask = 0xFF & ~((1 << (8-low_inc)) - (1 << (8-high_exc)))
         self.bit_range = range(low_inc, high_exc)
-
 
 class MultiChipWriteBuffer:
     def __init__(self, pixels_per_chip: list[int]):
@@ -60,7 +58,7 @@ class MultiChipWriteBuffer:
 
         for byte_metadata_index in range(self.bitfield_bytes_required): # enumerate is slow
             byte_bitfield = self.byte_bitfields[byte_metadata_index]
-            if byte_bitfield.high_exc > byte_bitfield.low_inc:
+            if byte_bitfield.active_bit_range:
                 base_led_index_for_byte = byte_bitfield.base_led_index_for_byte
                 byte_index = byte_metadata_index + self.header_bytes_required
                 bit_value = self.raw_bytearray[byte_index] & byte_bitfield.background_mask
