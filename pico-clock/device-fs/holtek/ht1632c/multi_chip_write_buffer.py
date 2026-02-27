@@ -52,7 +52,8 @@ class MultiChipWriteBuffer:
         ]
 
 
-    def set_only(self, led_list: list[int]):
+    @micropython.native
+    def set_only(self, led_list: list[int]) -> None:
         led_list_index = 0
         num_leds_set = len(led_list)
 

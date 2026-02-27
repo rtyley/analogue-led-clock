@@ -7,10 +7,9 @@ import com.github.tototoshi.csv.CSVWriter
 import com.gu.time.duration.formatting.*
 import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
-import com.madgag.scala.collection.decorators.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
-import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.{Follower, Leader}
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Follower
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -26,6 +25,7 @@ import com.madgag.logic.time.TimedF.given
 import com.madgag.logic.time.{Time, TimeParser, Timed, TimedF}
 import com.madgag.micropython.logiccapture.model.*
 import com.madgag.picoclock.RemoteCaptureUtil.{deviceFS, remoteCaptureClient}
+import com.madgag.scala.collection.decorators.*
 import org.scalatest.Inside.inside
 import org.scalatest.Inspectors.forAll
 import org.scalatest.OptionValues
@@ -38,7 +38,6 @@ import spire.math.Interval
 
 import java.time.Duration
 import java.time.Duration.ofMillis
-import java.time.temporal.ChronoUnit
 import java.time.temporal.ChronoUnit.MICROS
 import scala.collection.immutable.{SortedMap, SortedSet}
 
@@ -123,7 +122,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       forAll(durations) { duration =>
         duration.minus(avg).abs shouldBe < (avg.dividedBy(80))
       }
-      val expected = Duration.of(4804, MICROS)
+      val expected = Duration.of(4560, MICROS)
       avg.minus(expected).abs shouldBe < (expected.dividedBy(80))
 
       val justWrites = writeCommands.dropTime
