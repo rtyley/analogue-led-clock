@@ -2,8 +2,18 @@ import rp2
 from time import sleep, ticks_us, ticks_diff
 from holtek.ht1632c.driver import HT1632C
 from analogue_clock import AnalogueClock
+from DS3231.ds3231_gen import *
+from machine import Pin, I2C
 
+i2c = I2C(1, scl=Pin(15), sda=Pin(14))
+
+d = DS3231(i2c)
+# d.set_time()
+
+print(d.get_time())
 print('******HELLO I AM MICROPYTHON CODE***')
+
+
 
 def exec_with(freq: int):
 

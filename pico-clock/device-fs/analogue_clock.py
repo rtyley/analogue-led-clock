@@ -159,7 +159,6 @@ class AnalogueClock:
             self._write_mode_buffer.write_pixel(led, False)
         self.transmit_write_mode_buffer()
 
-    @timed_function
     def light_time(self, hour: int, minute: int):
         leds = AnalogueClock.leds_for(hour, minute)
         self._write_mode_buffer.set_only(leds)
@@ -180,12 +179,10 @@ class AnalogueClock:
         self.transmit_write_mode_buffer()
         print(f"id: {phase}")
 
-    @timed_function
     def set_all(self, value: bool):
         for pixel_index in range(self._write_mode_buffer.total_pixels):
             self._write_mode_buffer.write_pixel(pixel_index, value)
         self.transmit_write_mode_buffer()
 
-    @timed_function
     def transmit_write_mode_buffer(self):
         self.driver.transmit_bytearray(self._write_mode_buffer.raw_bytearray)
