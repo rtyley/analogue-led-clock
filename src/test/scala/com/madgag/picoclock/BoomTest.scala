@@ -9,6 +9,7 @@ import com.madgag.logic.*
 import com.madgag.logic.BoundedInterval.*
 import com.madgag.logic.fileformat.Foo
 import com.madgag.logic.fileformat.saleae.csv.SaleaeCsv
+import com.madgag.logic.protocol.holtek.ht1632c.Channel.ChipSelect.Follower
 import com.madgag.logic.protocol.holtek.ht1632c.Channel.{ChipSelect, Clock, Data}
 import com.madgag.logic.protocol.holtek.ht1632c.operations.*
 import com.madgag.logic.protocol.holtek.ht1632c.operations.Command.COM.DisplayLayout.`24x16`
@@ -24,6 +25,7 @@ import com.madgag.logic.time.TimedF.given
 import com.madgag.logic.time.{Time, TimeParser, Timed, TimedF}
 import com.madgag.micropython.logiccapture.model.*
 import com.madgag.picoclock.RemoteCaptureUtil.{deviceFS, remoteCaptureClient}
+import com.madgag.scala.collection.decorators.*
 import org.scalatest.Inside.inside
 import org.scalatest.Inspectors.forAll
 import org.scalatest.OptionValues
@@ -32,9 +34,12 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should
 import org.scalatest.time.{Millis, Seconds, Span}
 import scodec.bits.BitVector
+import spire.math.Interval
 
+import java.time.Duration
+import java.time.Duration.ofMillis
 import java.time.temporal.ChronoUnit.MICROS
-import scala.collection.immutable.SortedSet
+import scala.collection.immutable.{SortedMap, SortedSet}
 
 class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with ScalaFutures {
 
@@ -43,7 +48,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
     interval = scaled(Span(500, Millis))
   )
 
-  val MaxPIOStateMachineFrequencyForHT1632C = 10000000 // ????
+  val MaxPIOStateMachineFrequencyForHT1632C: Int = 10*1000*1000
 
   private val dataPin = GpioPin(2)
 
@@ -57,13 +62,14 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
   "Running code to drive HolTek" should "see a valid sequence" in {
     val triggerPattern = Trigger.Pattern(BitVector.bits(Seq(true, false, true)), GpioPin(3))
     println(triggerPattern.stateByPin)
+    val execFreq = MaxPIOStateMachineFrequencyForHT1632C / 2 // 10000000 for the correct
     whenReady(remoteCaptureClient.capture(JobDef(
       RemoteCaptureUtil.gitSource,
       Seq(
         ExecuteAndCaptureDef(
-          ExecutionDef(deviceFS, "from capture_test import exec_with ; exec_with(5000000)"),
+          ExecutionDef(deviceFS, s"from capture_test import exec_with ; exec_with($execFreq)"),
           CaptureDef(
-            Sampling(frequency = 5000000*2, preTriggerSamples = 10, postTriggerSamples = 380000),
+            Sampling(frequency = execFreq*2, preTriggerSamples = 10, postTriggerSamples = 380000),
             SortedSet(dataPin, GpioPin(3), GpioPin(4), GpioPin(5)),
             triggerPattern
           )
@@ -71,7 +77,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       )
     ), gpioMapping).value.map(_.left.map(err => new RuntimeException(err.toString)).toTry.get).unsafeToFuture()) { signals =>
       val sig = signals.head.value
-      val deglitchedSignal = sig // sig.transform(_.deglitch(ofNanos(90))) - Pico signals don't seem to need de-glitching
+      val deglitchedSignal = sig.unsafeSubInterval(sig.interval.intersect(Interval.atOrBelow(sig.data(Follower.One).events(Direction.Desc).find(_.value).map(_.time).value))) // sig.transform(_.deglitch(ofNanos(90))) - Pico signals don't seem to need de-glitching
       writeOutFileForReference(deglitchedSignal)
       val anomaliesByCriterion = TimingCharacteristics.violationFinder.violationsIn(deglitchedSignal)
       println(anomaliesByCriterion.map {
@@ -92,6 +98,33 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
       val changingLights = ledStates.data.filter(!_._2.isConstant).toSeq.sortBy(_._2.goingTo(true).headOption)
 
+      val updates = writeCommands.splitByGaps(ofMillis(1))
+      val updateStates = updates.map(_.value.collect {
+        case cv@ChipVal(_, w: WriteMode) => cv.copy(value = w)
+      }.resultingChipLedState)
+
+      updateStates.head.filter(_._2).keySet shouldBe AnalogueClockSpecification.ledsFor(0, 0)
+      println(s"updateStates=${updateStates.size}")
+      forAll(updateStates.zipWithIndex) {
+        (update, index) =>
+          val litLeds = update.filter(_._2).keySet.toSeq.sorted
+          val expectedLeds = AnalogueClockSpecification.ledsFor(0, index).toSeq.sorted
+          println(s"index=$index actual-hands=${handSummary(litLeds)} expected-hands=${handSummary(expectedLeds)}")
+          val displayTime = AnalogueClockSpecification.displayTimeFor(litLeds.toSet).value
+          displayTime shouldBe DisplayTime(0, index)
+      }
+
+      val startTimes = updates.map(_.interval.lowerValueBound.a)
+      val durations: Seq[Delta] = startTimes.zip(startTimes.tail).map(Time.between)
+      val numSamples = durations.size
+      val avg = durations.reduce(_ plus _).dividedBy(numSamples)
+      println(s"avg=${avg.truncatedTo(MICROS).format(2)} samples=$numSamples")
+      forAll(durations) { duration =>
+        duration.minus(avg).abs shouldBe < (avg.dividedBy(80))
+      }
+      val expected = Duration.of(4560, MICROS)
+      avg.minus(expected).abs shouldBe < (expected.dividedBy(80))
+
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>
         inside(chipVal.value) {
@@ -101,10 +134,11 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
         }
       }
 
-      val startTimes = writeCommands.map(_.value).map(_.interval.lowerValueBound.a)
-      val durations = startTimes.zip(startTimes.tail).map(Time.between)
-      println(durations.map(_.truncatedTo(MICROS).format(2)))
     }
+  }
+
+  private def handSummary(litLeds: Seq[ChipLed]) = {
+    SortedMap.from(AnalogueClockSpecification.handsFor(litLeds.toSet).mapV(_.size))
   }
 
   def operationsFor[T: Time](channelSignals: ChannelSignals[T, Channel]): Seq[Timed[T, (ChipSelect, OperationSignals[T])]] =
