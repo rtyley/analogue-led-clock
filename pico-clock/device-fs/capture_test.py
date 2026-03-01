@@ -5,7 +5,7 @@ from analogue_clock import AnalogueClock
 from DS3231.ds3231_gen import *
 from machine import Pin, I2C
 
-i2c = I2C(1, scl=Pin(15), sda=Pin(14))
+i2c = I2C(0, scl=Pin(13), sda=Pin(12))
 
 d = DS3231(i2c)
 # d.set_time()
