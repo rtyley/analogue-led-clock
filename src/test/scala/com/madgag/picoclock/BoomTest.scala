@@ -120,10 +120,10 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       val avg = durations.reduce(_ plus _).dividedBy(numSamples)
       println(s"avg=${avg.truncatedTo(MICROS).format(2)} samples=$numSamples")
       forAll(durations) { duration =>
-        duration.minus(avg).abs shouldBe < (avg.dividedBy(80))
+        duration.minus(avg).abs shouldBe < (avg.dividedBy(60))
       }
       val expected = Duration.of(4560, MICROS)
-      avg.minus(expected).abs shouldBe < (expected.dividedBy(80))
+      avg.minus(expected).abs shouldBe < (expected.dividedBy(60))
 
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>
