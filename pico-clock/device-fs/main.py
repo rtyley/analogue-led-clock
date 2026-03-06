@@ -1,9 +1,8 @@
-import rp2
-from time import sleep, ticks_us, ticks_diff
-from holtek.ht1632c.driver import HT1632C
-from analogue_clock import AnalogueClock
-from DS3231.ds3231_gen import *
 from machine import Pin, I2C
+import sys
+from DS3231.ds3231_gen import *
+from analogue_clock import AnalogueClock
+from holtek.ht1632c.driver import HT1632C
 
 i2c = I2C(0, scl=Pin(13), sda=Pin(12))
 
@@ -17,10 +16,22 @@ print('******HELLO I AM THE MAIN CODE***')
 ac = AnalogueClock(HT1632C(base_pin_index=2, state_machine_id=0, freq = 10*1000*1000))
 ac.initialise()
 
-while True:
-    d.alarm1.clear()  # Clear pending alarm
-    while not d.alarm1():  # Wait for alarm
-        pass
-    YY, MM, DD, hh, mm, ss, wday, _ = d.get_time()
-    ac.light_time(hh, mm)
-    time.sleep(0.3)  # Pin stays low for 300ms
+try:
+    while True:
+        d.alarm1.clear()  # Clear pending alarm
+        while not d.alarm1():  # Wait for alarm
+            pass
+        YY, MM, DD, hh, mm, ss, wday, _ = d.get_time()
+        ac.light_time(hh, mm)
+        time.sleep(0.3)  # Pin stays low for 300ms
+except Exception as e:
+    print("Fatal error in main:")
+    sys.print_exception(e)
+
+# Following a normal Exception or main() exiting, reset the board.
+# Following a non-Exception error such as KeyboardInterrupt (Ctrl-C),
+# this code will drop to a REPL. Place machine.reset() in a finally
+# block to always reset, instead.
+machine.reset()
+
+
