@@ -3,6 +3,7 @@ import sys
 from DS3231.ds3231_gen import *
 from analogue_clock import AnalogueClock
 from holtek.ht1632c.driver import HT1632C
+from tzif_parser import TimeZoneInfo
 
 i2c = I2C(0, scl=Pin(13), sda=Pin(12))
 
@@ -12,6 +13,13 @@ d = DS3231(i2c)
 print(d.get_time())
 d.alarm1.set(EVERY_SECOND)
 print('******HELLO I AM THE MAIN CODE***')
+
+tz_info = TimeZoneInfo.read("Eurppe/Amsterdam")
+
+print(tz_info)
+print(tz_info.header)
+print(tz_info.body)
+print(tz_info.footer)
 
 ac = AnalogueClock(HT1632C(base_pin_index=2, state_machine_id=0, freq = 10*1000*1000))
 ac.initialise()
