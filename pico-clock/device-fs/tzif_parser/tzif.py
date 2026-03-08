@@ -443,8 +443,10 @@ class TimeZoneInfo:
 
         for tz_root in search_paths:
             candidate = tz_root + "/" + normalized_name
+            print(candidate)
             try:
                 st = os.stat(candidate)
+                print(st)
                 # Check it's a file (not a directory) - stat[0] bit 15..12 = type
                 if st[0] & 0x8000:  # regular file
                     with open(candidate, "rb") as file:
