@@ -39,7 +39,7 @@ class TimeZoneInfoHeader:
         if magic != b"TZif":
             raise ValueError("Invalid TZif file: Magic sequence not found.")
 
-        version = 1 if version_byte == b"\x00" else int(version_byte.decode("ascii"))
+        version = 1 if version_byte == b"\x00" else version_byte - 48 # ord('0')
 
         return cls(
             version,
