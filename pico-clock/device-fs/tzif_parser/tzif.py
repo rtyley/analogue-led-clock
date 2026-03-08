@@ -1,5 +1,4 @@
 import os
-import sysconfig
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from importlib import resources
@@ -477,7 +476,7 @@ class TimeZoneInfo:
 
     @staticmethod
     def _compute_default_tzpath() -> tuple[str, ...]:
-        env_var = os.environ.get("PYTHONTZPATH") or sysconfig.get_config_var("TZPATH")
+        env_var = os.environ.get("PYTHONTZPATH")
         if env_var:
             return tuple(path for path in env_var.split(os.pathsep) if path)
 
