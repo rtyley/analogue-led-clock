@@ -1,50 +1,66 @@
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
-
-
-@dataclass(frozen=True)
 class TimeZoneResolution:
     """
     Resolution of a timezone at a specific instant.
     """
 
-    timezone_name: str
-    resolution_time: datetime  # tz-aware UTC
-    local_time: datetime  # naive local wall time
-    utc_offset_secs: int
-    is_dst: bool
-    abbreviation: str | None
-    dst_difference_secs: int
-    next_transition: datetime | None  # tz-aware UTC
+    def __init__(
+        self,
+        timezone_name,
+        resolution_time,
+        local_time,
+        utc_offset_secs,
+        is_dst,
+        abbreviation,
+        dst_difference_secs,
+        next_transition=None,
+    ):
+        self.timezone_name = timezone_name
+        self.resolution_time = resolution_time
+        self.local_time = local_time
+        self.utc_offset_secs = utc_offset_secs
+        self.is_dst = is_dst
+        self.abbreviation = abbreviation
+        self.dst_difference_secs = dst_difference_secs
+        self.next_transition = next_transition
+
+    def _replace(self, **kwargs):
+        """Return a copy with specified fields replaced."""
+        d = dict(
+            timezone_name=self.timezone_name,
+            resolution_time=self.resolution_time,
+            local_time=self.local_time,
+            utc_offset_secs=self.utc_offset_secs,
+            is_dst=self.is_dst,
+            abbreviation=self.abbreviation,
+            dst_difference_secs=self.dst_difference_secs,
+            next_transition=self.next_transition,
+        )
+        d.update(kwargs)
+        return TimeZoneResolution(**d)
 
 
-class WallStandardFlag(Enum):
-    """
-    Represents the wall/std flag in a TZif file.
-    """
-
-    WALL = 0
-    STANDARD = 1
+# WallStandardFlag constants (replaces Enum)
+WALL = 0
+STANDARD = 1
 
 
-@dataclass
 class LeapSecondTransition:
     """
     Represents a leap second entry in a TZif file.
     """
 
-    transition_time: int
-    correction: int
-    is_expiration: bool = False
+    def __init__(self, transition_time, correction, is_expiration=False):
+        self.transition_time = transition_time
+        self.correction = correction
+        self.is_expiration = is_expiration
 
 
-@dataclass
 class TimeTypeInfo:
     """
     Represents a ttinfo structure in a TZif file.
     """
 
-    utc_offset_secs: int
-    is_dst: bool
-    abbrev_index: int
+    def __init__(self, utc_offset_secs, is_dst, abbrev_index):
+        self.utc_offset_secs = utc_offset_secs
+        self.is_dst = is_dst
+        self.abbrev_index = abbrev_index
