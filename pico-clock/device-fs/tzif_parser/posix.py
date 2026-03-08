@@ -165,7 +165,8 @@ class PosixTzInfo:
             return None
 
         local_tz, dst_start, dst_end = _split_posix_sections(posix_string)
-
+        local_tz_str = local_tz.decode("utf-8")
+        print(f"local_tz_str=${local_tz_str}")
         local_tz_parser = re.compile(
             r"([^<0-9:.+-]+|<[^>]+>)"
             r"(?:"
@@ -176,7 +177,6 @@ class PosixTzInfo:
             r")?"
             r")?"
         )
-        local_tz_str = local_tz.decode("utf-8")
         local_tz_match = local_tz_parser.match(local_tz_str)
         if local_tz_match is None or local_tz_match.group(0) != local_tz_str:
             raise ValueError("{} is not a valid TZ string".format(local_tz))
