@@ -410,7 +410,7 @@ class TimeZoneInfo:
         v2_body_data = TimeZoneInfoBody.read(
             file, v2_header_data, v2_header_data.version
         )
-        v2_posix_string = PosixTzInfo.read(file)
+        v2_posix_string = None # PosixTzInfo.read(file) - "ValueError: regex too complex"
 
         return cls(
             timezone_name,
