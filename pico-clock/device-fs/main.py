@@ -14,7 +14,7 @@ print(d.get_time())
 d.alarm1.set(EVERY_SECOND)
 print('******HELLO I AM THE MAIN CODE***')
 
-tz_info = TimeZoneInfo.read("Eurppe/Amsterdam")
+tz_info = TimeZoneInfo.read("Europe/Amsterdam")
 
 print(tz_info)
 print(tz_info.header)
