@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from .models import TimeZoneResolution
 from .posix import PosixTzInfo
