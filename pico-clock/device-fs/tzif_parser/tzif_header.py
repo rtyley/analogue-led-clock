@@ -22,7 +22,7 @@ class TimeZoneInfoHeader:
 
     @classmethod
     def read(cls, file):
-        format_ = ">4s1c15x6I"
+        format_ = ">4sb15x6I"
         header_size = struct.calcsize(format_)
         header_data = struct.unpack(format_, file.read(header_size))
         (
