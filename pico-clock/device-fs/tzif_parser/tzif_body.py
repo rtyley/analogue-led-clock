@@ -216,13 +216,4 @@ class TimeZoneInfoBody:
         return list(file.read(count))
 
     def __repr__(self) -> str:
-        return (
-            f"TimeZoneInfoBody(transition_times={self.transition_times!r}, "
-            f"leap_second_transitions={self.leap_second_transitions!r}, "
-            f"leap_second_expiration={self.leap_second_expiration!r}, "
-            f"time_type_infos={self.time_type_infos!r}, "
-            f"time_type_indices={self.time_type_indices!r}, "
-            f"timezone_abbrevs={self._timezone_abbrevs!r}, "
-            f"wall_standard_flags={self.wall_standard_flags!r}, "
-            f"is_utc_flags={self.is_utc_flags!r})"
-        )
+        return "TimeZoneInfoBody()"
