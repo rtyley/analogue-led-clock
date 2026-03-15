@@ -1,9 +1,5 @@
 import os
-import sysconfig
-from dataclasses import replace
-from datetime import datetime, timedelta, timezone
-from importlib import resources
-from typing import IO, NamedTuple
+from datetime import timedelta, datetime
 
 from .models import TimeZoneResolution
 from .posix import PosixTzInfo
@@ -11,22 +7,23 @@ from .tzif_body import TimeZoneInfoBody
 from .tzif_header import TimeZoneInfoHeader
 
 
-class TimeZoneResolutionCache(NamedTuple):
-    cache_key: datetime
-    resolution: TimeZoneResolution
+class TimeZoneResolutionCache:
+    def __init__(self, cache_key, resolution):
+        self.cache_key = cache_key
+        self.resolution = resolution
 
 
 class TimeZoneInfo:
     def __init__(
         self,
-        timezone_name: str,
-        filepath: str,
-        header_data: TimeZoneInfoHeader,
-        body_data: TimeZoneInfoBody,
-        v2_header_data: TimeZoneInfoHeader | None = None,
-        v2_body_data: TimeZoneInfoBody | None = None,
-        posix_tz_info: PosixTzInfo | None = None,
-    ) -> None:
+        timezone_name,
+        filepath,
+        header_data,
+        body_data,
+        v2_header_data=None,
+        v2_body_data=None,
+        posix_tz_info=None,
+    ):
         self.timezone_name = timezone_name
         self.filepath = filepath
         self._posix_tz_info = posix_tz_info
@@ -34,14 +31,14 @@ class TimeZoneInfo:
         self._body_data = body_data
         self._v2_header_data = v2_header_data
         self._v2_body_data = v2_body_data
-        self._last_resolution: TimeZoneResolutionCache | None = None
+        self._last_resolution = None
 
     @property
-    def version(self) -> int:
+    def version(self):
         return self.header.version
 
     @property
-    def header(self) -> TimeZoneInfoHeader:
+    def header(self):
         if self._header_data is None:
             raise ValueError("No header data available")
         if self._header_data.version < 2:
@@ -51,7 +48,7 @@ class TimeZoneInfo:
         return self._v2_header_data
 
     @property
-    def body(self) -> TimeZoneInfoBody:
+    def body(self):
         if self._body_data is None:
             raise ValueError("No body data available")
         if self.version < 2:
@@ -61,24 +58,24 @@ class TimeZoneInfo:
         return self._v2_body_data
 
     @property
-    def footer(self) -> PosixTzInfo | None:
+    def footer(self):
         return self._posix_tz_info
 
     @staticmethod
-    def _local_time(dt_utc: datetime, offset_secs: int) -> datetime:
-        """Naive local wall clock for a UTC datetime plus offset seconds."""
-        return (dt_utc + timedelta(seconds=offset_secs)).replace(tzinfo=None)
+    def _local_time(dt_utc, offset_secs):
+        """Naive local wall clock for a naive UTC datetime plus offset seconds."""
+        return dt_utc + timedelta(seconds=offset_secs)
 
     def _cache_resolution(
         self,
-        dt_utc: datetime,
-        dt_utc_key: datetime,
-        offset_secs: int,
-        is_dst: bool,
-        abbr: str | None,
-        delta: int,
-        next_transition: datetime | None,
-    ) -> TimeZoneResolution:
+        dt_utc,
+        dt_utc_key,
+        offset_secs,
+        is_dst,
+        abbr,
+        delta,
+        next_transition,
+    ):
         local = self._local_time(dt_utc, offset_secs)
         resolution = TimeZoneResolution(
             self.timezone_name,
@@ -94,26 +91,26 @@ class TimeZoneInfo:
         return resolution
 
     @staticmethod
-    def _as_utc(dt: datetime) -> datetime:
-        """Convert naive (assumed UTC) or aware datetime to UTC-aware datetime."""
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(
-            timezone.utc
-        )
+    def _as_utc(dt):
+        """Return the datetime as-is (all datetimes are treated as naive UTC in MicroPython)."""
+        return dt
 
     @staticmethod
-    def _cache_key(dt_utc: datetime) -> datetime:
-        """Cache key normalized to whole seconds while preserving fold."""
-        return dt_utc.replace(microsecond=0, fold=dt_utc.fold)
+    def _cache_key(dt_utc):
+        """Cache key (MicroPython datetime already has no sub-second precision)."""
+        return dt_utc
 
     @staticmethod
-    def _initial_tt_state(
-        body: TimeZoneInfoBody,
-    ) -> tuple[int, int, str | None, bool]:
+    def _initial_tt_state(body):
         """
         Pick the standard ttinfo if present (otherwise the first ttinfo) and
         return its offset, dst delta, abbreviation, and dst flag.
         """
-        std = next((x for x in body.time_type_infos if not x.is_dst), None)
+        std = None
+        for x in body.time_type_infos:
+            if not x.is_dst:
+                std = x
+                break
         tt = std if std is not None else body.time_type_infos[0]
         delta = (
             (tt.utc_offset_secs - std.utc_offset_secs) if (tt.is_dst and std) else 0
@@ -122,7 +119,7 @@ class TimeZoneInfo:
         return tt.utc_offset_secs, delta, abbr, tt.is_dst
 
     @staticmethod
-    def _posix_offsets(posix_info: PosixTzInfo) -> tuple[int, int, int]:
+    def _posix_offsets(posix_info):
         """
         Return (standard offset, dst offset, dst delta) in seconds
         derived from a PosixTzInfo footer.
@@ -135,9 +132,7 @@ class TimeZoneInfo:
         )
         return std, dst_offset, dst_offset - std
 
-    def _posix_footer_state(
-        self, dt_utc: datetime
-    ) -> tuple[int, int, str | None, bool] | None:
+    def _posix_footer_state(self, dt_utc):
         footer = self.footer
         if footer is None:
             return None
@@ -169,7 +164,7 @@ class TimeZoneInfo:
 
         return offset_secs, delta, abbr, in_dst
 
-    def _next_posix_transition_utc(self, dt_utc: datetime) -> datetime | None:
+    def _next_posix_transition_utc(self, dt_utc):
         """
         Compute the next transition instant in UTC using the POSIX footer rules,
         for a given UTC datetime strictly after the end of the TZif transition body.
@@ -189,7 +184,7 @@ class TimeZoneInfo:
         local_std = self._local_time(dt_utc, std)
         year = local_std.year
 
-        candidates: list[tuple[datetime, datetime, int]] = []
+        candidates = []
 
         # Look for the next boundary in this year or next year
         for y in (year, year + 1):
@@ -210,19 +205,24 @@ class TimeZoneInfo:
         if not candidates:
             return None
 
-        _, local_wall, boundary_offset = min(candidates, key=lambda x: x[0])
+        # Find minimum by first element of tuple
+        best = candidates[0]
+        for c in candidates[1:]:
+            if c[0] < best[0]:
+                best = c
+        _, local_wall, boundary_offset = best
         boundary_delta = timedelta(seconds=boundary_offset)
-        next_utc = (local_wall - boundary_delta).replace(tzinfo=timezone.utc)
+        next_utc = local_wall - boundary_delta
         return next_utc
 
     @staticmethod
     def _next_meaningful_body_transition(
-        body: TimeZoneInfoBody,
-        start_index: int,
-        current_offset: int,
-        current_dst_diff: int,
-        current_abbr: str | None,
-    ) -> datetime | None:
+        body,
+        start_index,
+        current_offset,
+        current_dst_diff,
+        current_abbr,
+    ):
         """
         Find the next transition that changes the effective ttinfo as defined by
         zoneinfo (_ttinfo equality is utcoff/dstoff/tzname).
@@ -251,15 +251,14 @@ class TimeZoneInfo:
 
         # Check cache
         if self._last_resolution is not None:
-            cached_key: datetime = self._last_resolution.cache_key
-            cached_resolution: TimeZoneResolution = self._last_resolution.resolution
+            cached_key = self._last_resolution.cache_key
+            cached_resolution = self._last_resolution.resolution
 
             # Exact match: fast path
             if cached_key == dt_utc_key:
                 off = cached_resolution.utc_offset_secs
                 local = self._local_time(dt_utc, off)
-                return replace(
-                    cached_resolution,
+                return cached_resolution._replace(
                     resolution_time=dt_utc,
                     local_time=local,
                 )
@@ -275,8 +274,7 @@ class TimeZoneInfo:
 
                 # Build a new resolution for this dt_utc, but reuse the same offset,
                 # DST flag, abbr, delta, and next_transition.
-                return replace(
-                    cached_resolution,
+                return cached_resolution._replace(
                     resolution_time=dt_utc,
                     local_time=local,
                 )
@@ -382,29 +380,27 @@ class TimeZoneInfo:
             next_transition,
         )
 
-    def local(self, dt: datetime) -> datetime:
+    def local(self, dt: datetime):
         """Naive local wall time at `dt`."""
         return self.resolve(dt).local_time
 
-    def is_dst(self, dt: datetime) -> bool:
+    def is_dst(self, dt: datetime):
         return self.resolve(dt).is_dst
 
-    def utc_offset_secs(self, dt: datetime) -> int:
+    def utc_offset_secs(self, dt: datetime):
         return self.resolve(dt).utc_offset_secs
 
-    def dst_difference_secs(self, dt: datetime) -> int:
+    def dst_difference_secs(self, dt: datetime):
         return self.resolve(dt).dst_difference_secs
 
-    def abbreviation(self, dt: datetime) -> str | None:
+    def abbreviation(self, dt: datetime):
         return self.resolve(dt).abbreviation
 
-    def next_transition(self, dt: datetime) -> datetime | None:
+    def next_transition(self, dt: datetime):
         return self.resolve(dt).next_transition
 
     @classmethod
-    def _read_from_fileobj(
-        cls, file: IO[bytes], timezone_name: str, filepath: str
-    ) -> "TimeZoneInfo":
+    def _read_from_fileobj(cls, file, timezone_name, filepath):
         header_data = TimeZoneInfoHeader.read(file)
         body_data = TimeZoneInfoBody.read(file, header_data)
         if header_data.version < 2:
@@ -427,61 +423,72 @@ class TimeZoneInfo:
         )
 
     @classmethod
-    def read(cls, timezone_name: str) -> "TimeZoneInfo":
+    def read(cls, timezone_name):
         """
         Load a timezone by name: check TZDIR, default tz paths, then bundled
-        tzdata (if installed). Rejects absolute paths.
+        zoneinfo files. Rejects absolute paths.
         """
-        if os.path.isabs(timezone_name):
+        if timezone_name.startswith("/"):
             raise ValueError(
                 "Absolute paths are not allowed in TimeZoneInfo.read(); use from_path() instead."
             )
 
         normalized_name = cls._validate_timezone_key(timezone_name)
 
-        search_paths: list[str] = []
-        tzdir_override = os.environ.get("TZDIR")
+        search_paths = []
+        tzdir_override = os.environ.get("TZDIR") if hasattr(os, "environ") else None
         if tzdir_override:
-            search_paths.append(os.path.realpath(tzdir_override))
+            search_paths.append(tzdir_override)
         search_paths.extend(cls._compute_default_tzpath())
 
         for tz_root in search_paths:
-            candidate = os.path.join(tz_root, normalized_name)
-            if os.path.isfile(candidate):
-                real = os.path.realpath(candidate)
-                with open(real, "rb") as file:
-                    return cls._read_from_fileobj(file, timezone_name, real)
+            candidate = tz_root + "/" + normalized_name
+            print(candidate)
+            try:
+                st = os.stat(candidate)
+                print(st)
+                # Check it's a file (not a directory) - stat[0] bit 15..12 = type
+                if st[0] & 0x8000:  # regular file
+                    with open(candidate, "rb") as file:
+                        return cls._read_from_fileobj(file, timezone_name, candidate)
+            except OSError:
+                pass
 
-        # Fallback to tzdata package if present
-        file = cls._load_tzdata_from_package(normalized_name)
-        with file as f:
-            return cls._read_from_fileobj(f, timezone_name, f"tzdata:{normalized_name}")
+        raise FileNotFoundError("No time zone found with key {}".format(repr(timezone_name)))
 
     @classmethod
-    def from_path(cls, path: str, timezone_name: str | None = None) -> "TimeZoneInfo":
+    def from_path(cls, path, timezone_name=None):
         """Read a TZif file directly from an absolute filesystem path."""
-        real = os.path.realpath(path)
-        with open(real, "rb") as file:
-            return cls._read_from_fileobj(file, timezone_name or real, real)
+        with open(path, "rb") as file:
+            return cls._read_from_fileobj(file, timezone_name or path, path)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return (
-            f"TimeZoneInfo(timezone_name={self.timezone_name!r}, "
-            f"filepath={self.filepath!r}, "
-            f"header_data={self._header_data!r}, "
-            f"body_data={self._body_data!r}, "
-            f"v2_header_data={self._v2_header_data!r}, "
-            f"v2_body_data={self._v2_body_data!r}, "
-            f"posix_tz_info={self._posix_tz_info!r})"
+            "TimeZoneInfo(timezone_name={}, "
+            "filepath={}, "
+            "header_data={}, "
+            "body_data={}, "
+            "v2_header_data={}, "
+            "v2_body_data={}, "
+            "posix_tz_info={})".format(
+                repr(self.timezone_name),
+                repr(self.filepath),
+                repr(self._header_data),
+                repr(self._body_data),
+                repr(self._v2_header_data),
+                repr(self._v2_body_data),
+                repr(self._posix_tz_info),
+            )
         )
 
     @staticmethod
-    def _compute_default_tzpath() -> tuple[str, ...]:
-        env_var = os.environ.get("PYTHONTZPATH") or sysconfig.get_config_var("TZPATH")
-        if env_var:
-            return tuple(path for path in env_var.split(os.pathsep) if path)
+    def _compute_default_tzpath():
+        if hasattr(os, "environ"):
+            env_var = os.environ.get("PYTHONTZPATH")
+            if env_var:
+                return tuple(path for path in env_var.split(":") if path)
 
-        # Fallback paths align with CPython's defaults
+        # Fallback paths - include common paths and the bundled zoneinfo
         return (
             "/usr/share/zoneinfo",
             "/usr/share/lib/zoneinfo",
@@ -489,29 +496,14 @@ class TimeZoneInfo:
         )
 
     @staticmethod
-    def _validate_timezone_key(key: str) -> str:
-        if os.path.isabs(key):
+    def _validate_timezone_key(key):
+        if key.startswith("/"):
             raise ValueError("Absolute paths are not allowed as timezone keys")
 
-        # Normalize and ensure the normalized form does not change length (prevents ../)
-        normalized = os.path.normpath(key)
-        if len(normalized) != len(key) or normalized in (os.curdir, os.pardir, ""):
-            raise ValueError(f"Invalid timezone name: {key!r}")
+        # Reject path traversal attempts
+        parts = key.split("/")
+        for part in parts:
+            if part in ("", ".", ".."):
+                raise ValueError("Invalid timezone name: {}".format(repr(key)))
 
-        # Ensure the path stays within a sentinel base
-        _base = os.path.normpath(os.path.join("_", "_"))[:-1]
-        resolved = os.path.normpath(os.path.join(_base, normalized))
-        if not resolved.startswith(_base):
-            raise ValueError(f"Invalid timezone name: {key!r}")
-
-        return normalized
-
-    @staticmethod
-    def _load_tzdata_from_package(key: str) -> IO[bytes]:
-        components = key.split("/")
-        package_name = ".".join(["tzdata.zoneinfo"] + components[:-1])
-        resource_name = components[-1]
-        try:
-            return resources.files(package_name).joinpath(resource_name).open("rb")
-        except (ImportError, FileNotFoundError, UnicodeEncodeError) as exc:
-            raise FileNotFoundError(f"No time zone found with key {key!r}") from exc
+        return key

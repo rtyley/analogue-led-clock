@@ -1,39 +1,50 @@
-import bisect
 import struct
-from datetime import datetime, timedelta, timezone
-from typing import IO
+from datetime import datetime, timedelta
 
 from .models import LeapSecondTransition, TimeTypeInfo
 from .tz_transition import TimeZoneTransition
 from .tzif_header import TimeZoneInfoHeader
 
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_EPOCH = datetime(1970, 1, 1)
+
+# Sentinel values for clamping overflow (MicroPython has no datetime.max/min)
+_DATETIME_MAX = datetime(9999, 12, 31, 23, 59, 59)
+_DATETIME_MIN = datetime(1, 1, 1, 0, 0, 0)
+
+
+def _bisect_right(a, x):
+    """Pure-Python bisect_right for MicroPython compatibility."""
+    lo = 0
+    hi = len(a)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if x < a[mid]:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
 
 
 class TimeZoneInfoBody:
     @staticmethod
-    def _to_datetime_clamped(seconds: int) -> datetime:
+    def _to_datetime_clamped(seconds):
         """Convert epoch seconds to datetime, clamping overflow to min/max."""
         try:
             return _EPOCH + timedelta(seconds=seconds)
         except OverflowError:
-            return (
-                datetime.max.replace(tzinfo=timezone.utc)
-                if seconds > 0
-                else datetime.min.replace(tzinfo=timezone.utc)
-            )
+            return _DATETIME_MAX if seconds > 0 else _DATETIME_MIN
 
     def __init__(
         self,
-        transition_times: list[datetime],
-        leap_second_transitions: list[LeapSecondTransition],
-        time_type_infos: list[TimeTypeInfo],
-        time_type_indices: list[int],
-        timezone_abbrevs: str,
-        wall_standard_flags: list[int],
-        is_utc_flags: list[int],
-        leap_second_expiration: datetime | None = None,
-    ) -> None:
+        transition_times,
+        leap_second_transitions,
+        time_type_infos,
+        time_type_indices,
+        timezone_abbrevs,
+        wall_standard_flags,
+        is_utc_flags,
+        leap_second_expiration=None,
+    ):
         self.transition_times = transition_times
         self.leap_second_transitions = leap_second_transitions
         self.time_type_infos = time_type_infos
@@ -56,50 +67,40 @@ class TimeZoneInfoBody:
         ]
 
     @property
-    def timezone_abbrevs(self) -> list[str]:
-        seen: list[str] = []
+    def timezone_abbrevs(self):
+        seen = []
         for ttinfo in self.time_type_infos:
             abbr = self.get_abbrev_by_index(ttinfo.abbrev_index)
             if abbr not in seen:
                 seen.append(abbr)
         return seen
 
-    def get_abbrev_by_index(self, index: int) -> str:
+    def get_abbrev_by_index(self, index):
         if index < 0 or index >= len(self._timezone_abbrevs):
             raise IndexError("Index out of range")
         return self._timezone_abbrevs[index:].partition("\x00")[0]
 
-    def find_transition_index(self, dt: datetime) -> int | None:
+    def find_transition_index(self, dt) -> int:
         # Find the index of the transition time that is less than or equal to the given datetime
-        dt = (
-            dt.replace(tzinfo=timezone.utc)
-            if dt.tzinfo is None
-            else dt.astimezone(timezone.utc)
-        )
-        index = bisect.bisect_right(self.transition_times, dt)
+        # All datetimes are naive UTC
+        index = _bisect_right(self.transition_times, dt)
         if index == 0:
             return None
         return index - 1
 
-    def find_leap_second_index(self, dt: datetime) -> int | None:
-        dt = (
-            dt.replace(tzinfo=timezone.utc)
-            if dt.tzinfo is None
-            else dt.astimezone(timezone.utc)
-        )
+    def find_leap_second_index(self, dt):
+        # All datetimes are naive UTC
         timestamps = [
             self._to_datetime_clamped(ls.transition_time)
             for ls in self.leap_second_transitions
         ]
-        index = bisect.bisect_right(timestamps, dt)
+        index = _bisect_right(timestamps, dt)
         if index == 0:
             return None
         return index - 1
 
     @classmethod
-    def read(
-        cls, file: IO[bytes], header_data: TimeZoneInfoHeader, version=1
-    ) -> "TimeZoneInfoBody":
+    def read(cls, file, header_data, version=1):
         # Parse transition times
         dst_transitions = cls._read_transition_times(
             file, header_data.transitions_count, version
@@ -146,44 +147,41 @@ class TimeZoneInfoBody:
         )
 
     @classmethod
-    def _read_transition_times(
-        cls, file: IO[bytes], timecnt: int, version: int
-    ) -> list[datetime]:
-        fmt = f">{timecnt}q" if version >= 2 else f">{timecnt}i"
+    def _read_transition_times(cls, file, timecnt, version):
+        fmt = ">%dq" % timecnt if version >= 2 else ">%di" % timecnt
         raw = struct.unpack(fmt, file.read((8 if version >= 2 else 4) * timecnt))
 
         # Convert to datetimes, clamping any out-of-range values so a single
         # extreme timestamp cannot break parsing of the rest of the file.
-        converted: list[datetime] = []
+        converted = []
         for seconds in raw:
             converted.append(cls._to_datetime_clamped(seconds))
         return converted
 
     @classmethod
-    def _read_time_type_indices(cls, file: IO[bytes], timecnt: int) -> list[int]:
+    def _read_time_type_indices(cls, file, timecnt):
         return list(file.read(timecnt))
 
     @classmethod
-    def _read_ttinfo_structures(
-        cls, file: IO[bytes], typecnt: int
-    ) -> list[TimeTypeInfo]:
-        ttinfo_format = (
-            ">i?B"  # 4-byte signed integer, 1-byte boolean, 1-byte unsigned integer
-        )
+    def _read_ttinfo_structures(cls, file, typecnt):
+        # 4-byte signed integer, 1-byte is_dst flag, 1-byte unsigned abbreviation index
+        # MicroPython struct does not support '?' (bool), so use 'b' and convert
+        ttinfo_format = ">ibB"
         ttinfo_size = struct.calcsize(ttinfo_format)
-        return [
-            TimeTypeInfo(*struct.unpack(ttinfo_format, file.read(ttinfo_size)))
-            for _ in range(typecnt)
-        ]
+        result = []
+        for _ in range(typecnt):
+            utc_offset, is_dst_byte, abbrev_idx = struct.unpack(
+                ttinfo_format, file.read(ttinfo_size)
+            )
+            result.append(TimeTypeInfo(utc_offset, bool(is_dst_byte), abbrev_idx))
+        return result
 
     @classmethod
-    def _read_tz_designations(cls, file: IO[bytes], charcnt: int) -> str:
+    def _read_tz_designations(cls, file, charcnt):
         return file.read(charcnt).decode("ascii")
 
     @classmethod
-    def _read_leap_seconds(
-        cls, file: IO[bytes], count: int, version: int
-    ) -> tuple[list[LeapSecondTransition], datetime | None]:
+    def _read_leap_seconds(cls, file, count, version):
         # Each leap-second entry is a pair: (transition_time, correction)
         if count == 0:
             return [], None
@@ -195,7 +193,7 @@ class TimeZoneInfoBody:
             for _ in range(count)
         ]
 
-        expiration: datetime | None = None
+        expiration = None
         if version >= 4 and len(leaps) >= 2:
             last = leaps[-1]
             previous = leaps[-2]
@@ -206,17 +204,26 @@ class TimeZoneInfoBody:
         return leaps, expiration
 
     @classmethod
-    def _read_indicators(cls, file: IO[bytes], count: int) -> list[int]:
+    def _read_indicators(cls, file, count):
         return list(file.read(count))
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return (
-            f"TimeZoneInfoBody(transition_times={self.transition_times!r}, "
-            f"leap_second_transitions={self.leap_second_transitions!r}, "
-            f"leap_second_expiration={self.leap_second_expiration!r}, "
-            f"time_type_infos={self.time_type_infos!r}, "
-            f"time_type_indices={self.time_type_indices!r}, "
-            f"timezone_abbrevs={self._timezone_abbrevs!r}, "
-            f"wall_standard_flags={self.wall_standard_flags!r}, "
-            f"is_utc_flags={self.is_utc_flags!r})"
+            "TimeZoneInfoBody(transition_times={}, "
+            "leap_second_transitions={}, "
+            "leap_second_expiration={}, "
+            "time_type_infos={}, "
+            "time_type_indices={}, "
+            "timezone_abbrevs={}, "
+            "wall_standard_flags={}, "
+            "is_utc_flags={})".format(
+                repr(self.transition_times),
+                repr(self.leap_second_transitions),
+                repr(self.leap_second_expiration),
+                repr(self.time_type_infos),
+                repr(self.time_type_indices),
+                repr(self._timezone_abbrevs),
+                repr(self.wall_standard_flags),
+                repr(self.is_utc_flags),
+            )
         )
