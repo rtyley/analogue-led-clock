@@ -1,13 +1,28 @@
-import bisect
 import struct
-from datetime import datetime, timedelta, timezone
-from typing import IO
+from datetime import datetime, timedelta
 
 from .models import LeapSecondTransition, TimeTypeInfo
 from .tz_transition import TimeZoneTransition
 from .tzif_header import TimeZoneInfoHeader
 
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_EPOCH = datetime(1970, 1, 1)
+
+# Sentinel values for clamping overflow (MicroPython has no datetime.max/min)
+_DATETIME_MAX = datetime(9999, 12, 31, 23, 59, 59)
+_DATETIME_MIN = datetime(1, 1, 1, 0, 0, 0)
+
+
+def _bisect_right(a, x):
+    """Pure-Python bisect_right for MicroPython compatibility."""
+    lo = 0
+    hi = len(a)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if x < a[mid]:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
 
 
 class TimeZoneInfoBody:
@@ -17,11 +32,7 @@ class TimeZoneInfoBody:
         try:
             return _EPOCH + timedelta(seconds=seconds)
         except OverflowError:
-            return (
-                datetime.max.replace(tzinfo=timezone.utc)
-                if seconds > 0
-                else datetime.min.replace(tzinfo=timezone.utc)
-            )
+            return _DATETIME_MAX if seconds > 0 else _DATETIME_MIN
 
     def __init__(
         self,
@@ -71,34 +82,26 @@ class TimeZoneInfoBody:
 
     def find_transition_index(self, dt: datetime) -> int | None:
         # Find the index of the transition time that is less than or equal to the given datetime
-        dt = (
-            dt.replace(tzinfo=timezone.utc)
-            if dt.tzinfo is None
-            else dt.astimezone(timezone.utc)
-        )
-        index = bisect.bisect_right(self.transition_times, dt)
+        # All datetimes are naive UTC
+        index = _bisect_right(self.transition_times, dt)
         if index == 0:
             return None
         return index - 1
 
     def find_leap_second_index(self, dt: datetime) -> int | None:
-        dt = (
-            dt.replace(tzinfo=timezone.utc)
-            if dt.tzinfo is None
-            else dt.astimezone(timezone.utc)
-        )
+        # All datetimes are naive UTC
         timestamps = [
             self._to_datetime_clamped(ls.transition_time)
             for ls in self.leap_second_transitions
         ]
-        index = bisect.bisect_right(timestamps, dt)
+        index = _bisect_right(timestamps, dt)
         if index == 0:
             return None
         return index - 1
 
     @classmethod
     def read(
-        cls, file: IO[bytes], header_data: TimeZoneInfoHeader, version=1
+        cls, file, header_data: TimeZoneInfoHeader, version=1
     ) -> "TimeZoneInfoBody":
         # Parse transition times
         dst_transitions = cls._read_transition_times(
@@ -147,7 +150,7 @@ class TimeZoneInfoBody:
 
     @classmethod
     def _read_transition_times(
-        cls, file: IO[bytes], timecnt: int, version: int
+        cls, file, timecnt: int, version: int
     ) -> list[datetime]:
         fmt = f">{timecnt}q" if version >= 2 else f">{timecnt}i"
         raw = struct.unpack(fmt, file.read((8 if version >= 2 else 4) * timecnt))
@@ -160,29 +163,32 @@ class TimeZoneInfoBody:
         return converted
 
     @classmethod
-    def _read_time_type_indices(cls, file: IO[bytes], timecnt: int) -> list[int]:
+    def _read_time_type_indices(cls, file, timecnt: int) -> list[int]:
         return list(file.read(timecnt))
 
     @classmethod
     def _read_ttinfo_structures(
-        cls, file: IO[bytes], typecnt: int
+        cls, file, typecnt: int
     ) -> list[TimeTypeInfo]:
-        ttinfo_format = (
-            ">i?B"  # 4-byte signed integer, 1-byte boolean, 1-byte unsigned integer
-        )
+        # 4-byte signed integer, 1-byte is_dst flag, 1-byte unsigned abbreviation index
+        # MicroPython struct does not support '?' (bool), so use 'b' and convert
+        ttinfo_format = ">ibB"
         ttinfo_size = struct.calcsize(ttinfo_format)
-        return [
-            TimeTypeInfo(*struct.unpack(ttinfo_format, file.read(ttinfo_size)))
-            for _ in range(typecnt)
-        ]
+        result = []
+        for _ in range(typecnt):
+            utc_offset, is_dst_byte, abbrev_idx = struct.unpack(
+                ttinfo_format, file.read(ttinfo_size)
+            )
+            result.append(TimeTypeInfo(utc_offset, bool(is_dst_byte), abbrev_idx))
+        return result
 
     @classmethod
-    def _read_tz_designations(cls, file: IO[bytes], charcnt: int) -> str:
+    def _read_tz_designations(cls, file, charcnt: int) -> str:
         return file.read(charcnt).decode("ascii")
 
     @classmethod
     def _read_leap_seconds(
-        cls, file: IO[bytes], count: int, version: int
+        cls, file, count: int, version: int
     ) -> tuple[list[LeapSecondTransition], datetime | None]:
         # Each leap-second entry is a pair: (transition_time, correction)
         if count == 0:
@@ -206,7 +212,7 @@ class TimeZoneInfoBody:
         return leaps, expiration
 
     @classmethod
-    def _read_indicators(cls, file: IO[bytes], count: int) -> list[int]:
+    def _read_indicators(cls, file, count: int) -> list[int]:
         return list(file.read(count))
 
     def __repr__(self) -> str:

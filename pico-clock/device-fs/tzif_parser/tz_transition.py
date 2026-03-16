@@ -1,6 +1,4 @@
-from datetime import datetime, timedelta, timezone
-
-from .models import TimeTypeInfo, WallStandardFlag
+from datetime import timedelta
 
 
 class TimeZoneTransition:
@@ -20,7 +18,7 @@ class TimeZoneTransition:
         self._transition_index = transition_index
         self.time_type_info = time_type_infos[time_type_indices[transition_index]]
         self.wall_standard_flag = (
-            WallStandardFlag(wall_standard_flags[time_type_indices[transition_index]])
+            wall_standard_flags[time_type_indices[transition_index]]
             if len(wall_standard_flags) > 0
             else None
         )
@@ -37,25 +35,22 @@ class TimeZoneTransition:
     def transition_time_local_standard(self) -> datetime:
         if self._transition_index == 0:
             # Prefer a non-DST ttinfo if present, else fall back to index 0
-            first_std = next(
-                (tti for tti in self._time_type_infos if not tti.is_dst),
-                self._time_type_infos[0],
-            )
-            return self.transition_time_utc.astimezone(
-                timezone(timedelta(seconds=first_std.utc_offset_secs))
-            ).replace(tzinfo=None)
+            first_std = None
+            for tti in self._time_type_infos:
+                if not tti.is_dst:
+                    first_std = tti
+                    break
+            if first_std is None:
+                first_std = self._time_type_infos[0]
+            return _to_local(self.transition_time_utc, first_std.utc_offset_secs)
         ttinfo = self._time_type_infos[
             self._time_type_indices[self._transition_index - 1]
         ]
-        return self.transition_time_utc.astimezone(
-            timezone(timedelta(seconds=ttinfo.utc_offset_secs))
-        ).replace(tzinfo=None)
+        return _to_local(self.transition_time_utc, ttinfo.utc_offset_secs)
 
     @property
     def transition_time_local_wall(self) -> datetime:
-        return self.transition_time_utc.astimezone(
-            timezone(timedelta(seconds=self.utc_offset_secs))
-        ).replace(tzinfo=None)
+        return _to_local(self.transition_time_utc, self.utc_offset_secs)
 
     @property
     def transition_time_utc(self) -> datetime:
@@ -83,9 +78,10 @@ class TimeZoneTransition:
                 std_tt = next_tt
 
         if std_tt is None:
-            std_tt = next(
-                (tti for tti in self._time_type_infos if not tti.is_dst), None
-            )
+            for tti in self._time_type_infos:
+                if not tti.is_dst:
+                    std_tt = tti
+                    break
 
         if std_tt is None:
             return 0
@@ -107,3 +103,9 @@ class TimeZoneTransition:
     @property
     def is_dst(self) -> bool:
         return self.time_type_info.is_dst
+
+
+def _to_local(dt_utc, offset_secs):
+    """Convert a naive UTC datetime to naive local time by adding offset seconds."""
+    return dt_utc + timedelta(seconds=offset_secs)
+

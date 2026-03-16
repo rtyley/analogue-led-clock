@@ -1,9 +1,5 @@
 import os
-import sysconfig
-from dataclasses import replace
-from datetime import datetime, timedelta, timezone
-from importlib import resources
-from typing import IO, NamedTuple
+from datetime import timedelta, datetime
 
 from .models import TimeZoneResolution
 from .posix import PosixTzInfo
@@ -11,9 +7,10 @@ from .tzif_body import TimeZoneInfoBody
 from .tzif_header import TimeZoneInfoHeader
 
 
-class TimeZoneResolutionCache(NamedTuple):
-    cache_key: datetime
-    resolution: TimeZoneResolution
+class TimeZoneResolutionCache:
+    def __init__(self, cache_key: datetime, resolution: TimeZoneResolution):
+        self.cache_key = cache_key
+        self.resolution = resolution
 
 
 class TimeZoneInfo:
@@ -66,8 +63,8 @@ class TimeZoneInfo:
 
     @staticmethod
     def _local_time(dt_utc: datetime, offset_secs: int) -> datetime:
-        """Naive local wall clock for a UTC datetime plus offset seconds."""
-        return (dt_utc + timedelta(seconds=offset_secs)).replace(tzinfo=None)
+        """Naive local wall clock for a naive UTC datetime plus offset seconds."""
+        return dt_utc + timedelta(seconds=offset_secs)
 
     def _cache_resolution(
         self,
@@ -95,10 +92,8 @@ class TimeZoneInfo:
 
     @staticmethod
     def _as_utc(dt: datetime) -> datetime:
-        """Convert naive (assumed UTC) or aware datetime to UTC-aware datetime."""
-        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(
-            timezone.utc
-        )
+        """Return the datetime as-is (all datetimes are treated as naive UTC in MicroPython)."""
+        return dt
 
     @staticmethod
     def _cache_key(dt_utc: datetime) -> datetime:
@@ -113,7 +108,11 @@ class TimeZoneInfo:
         Pick the standard ttinfo if present (otherwise the first ttinfo) and
         return its offset, dst delta, abbreviation, and dst flag.
         """
-        std = next((x for x in body.time_type_infos if not x.is_dst), None)
+        std = None
+        for x in body.time_type_infos:
+            if not x.is_dst:
+                std = x
+                break
         tt = std if std is not None else body.time_type_infos[0]
         delta = (
             (tt.utc_offset_secs - std.utc_offset_secs) if (tt.is_dst and std) else 0
@@ -258,8 +257,7 @@ class TimeZoneInfo:
             if cached_key == dt_utc_key:
                 off = cached_resolution.utc_offset_secs
                 local = self._local_time(dt_utc, off)
-                return replace(
-                    cached_resolution,
+                return cached_resolution._replace(
                     resolution_time=dt_utc,
                     local_time=local,
                 )
@@ -275,8 +273,7 @@ class TimeZoneInfo:
 
                 # Build a new resolution for this dt_utc, but reuse the same offset,
                 # DST flag, abbr, delta, and next_transition.
-                return replace(
-                    cached_resolution,
+                return cached_resolution._replace(
                     resolution_time=dt_utc,
                     local_time=local,
                 )
@@ -403,7 +400,7 @@ class TimeZoneInfo:
 
     @classmethod
     def _read_from_fileobj(
-        cls, file: IO[bytes], timezone_name: str, filepath: str
+        cls, file, timezone_name: str, filepath: str
     ) -> "TimeZoneInfo":
         header_data = TimeZoneInfoHeader.read(file)
         body_data = TimeZoneInfoBody.read(file, header_data)
@@ -432,7 +429,7 @@ class TimeZoneInfo:
         Load a timezone by name: check TZDIR, default tz paths, then bundled
         tzdata (if installed). Rejects absolute paths.
         """
-        if os.path.isabs(timezone_name):
+        if timezone_name.startswith("/"):
             raise ValueError(
                 "Absolute paths are not allowed in TimeZoneInfo.read(); use from_path() instead."
             )
@@ -440,29 +437,29 @@ class TimeZoneInfo:
         normalized_name = cls._validate_timezone_key(timezone_name)
 
         search_paths: list[str] = []
-        tzdir_override = os.environ.get("TZDIR")
+        tzdir_override = os.environ.get("TZDIR") if hasattr(os, "environ") else None
         if tzdir_override:
-            search_paths.append(os.path.realpath(tzdir_override))
+            search_paths.append(tzdir_override)
         search_paths.extend(cls._compute_default_tzpath())
 
         for tz_root in search_paths:
-            candidate = os.path.join(tz_root, normalized_name)
-            if os.path.isfile(candidate):
-                real = os.path.realpath(candidate)
-                with open(real, "rb") as file:
-                    return cls._read_from_fileobj(file, timezone_name, real)
+            candidate = tz_root + "/" + normalized_name
+            try:
+                st = os.stat(candidate)
+                # Check it's a file (not a directory) - stat[0] bit 15..12 = type
+                if st[0] & 0x8000:  # regular file
+                    with open(candidate, "rb") as file:
+                        return cls._read_from_fileobj(file, timezone_name, candidate)
+            except OSError:
+                pass
 
-        # Fallback to tzdata package if present
-        file = cls._load_tzdata_from_package(normalized_name)
-        with file as f:
-            return cls._read_from_fileobj(f, timezone_name, f"tzdata:{normalized_name}")
+        raise FileNotFoundError("No time zone found with key {}".format(repr(timezone_name)))
 
     @classmethod
     def from_path(cls, path: str, timezone_name: str | None = None) -> "TimeZoneInfo":
         """Read a TZif file directly from an absolute filesystem path."""
-        real = os.path.realpath(path)
-        with open(real, "rb") as file:
-            return cls._read_from_fileobj(file, timezone_name or real, real)
+        with open(path, "rb") as file:
+            return cls._read_from_fileobj(file, timezone_name or path, path)
 
     def __repr__(self) -> str:
         return (
@@ -476,10 +473,11 @@ class TimeZoneInfo:
         )
 
     @staticmethod
-    def _compute_default_tzpath() -> tuple[str, ...]:
-        env_var = os.environ.get("PYTHONTZPATH") or sysconfig.get_config_var("TZPATH")
-        if env_var:
-            return tuple(path for path in env_var.split(os.pathsep) if path)
+    def _compute_default_tzpath():
+        if hasattr(os, "environ"):
+            env_var = os.environ.get("PYTHONTZPATH")
+            if env_var:
+                return tuple(path for path in env_var.split(":") if path)
 
         # Fallback paths align with CPython's defaults
         return (
@@ -490,28 +488,13 @@ class TimeZoneInfo:
 
     @staticmethod
     def _validate_timezone_key(key: str) -> str:
-        if os.path.isabs(key):
+        if key.startswith("/"):
             raise ValueError("Absolute paths are not allowed as timezone keys")
 
-        # Normalize and ensure the normalized form does not change length (prevents ../)
-        normalized = os.path.normpath(key)
-        if len(normalized) != len(key) or normalized in (os.curdir, os.pardir, ""):
-            raise ValueError(f"Invalid timezone name: {key!r}")
+        # Reject path traversal attempts
+        parts = key.split("/")
+        for part in parts:
+            if part in ("", ".", ".."):
+                raise ValueError(f"Invalid timezone name: {key!r}")
 
-        # Ensure the path stays within a sentinel base
-        _base = os.path.normpath(os.path.join("_", "_"))[:-1]
-        resolved = os.path.normpath(os.path.join(_base, normalized))
-        if not resolved.startswith(_base):
-            raise ValueError(f"Invalid timezone name: {key!r}")
-
-        return normalized
-
-    @staticmethod
-    def _load_tzdata_from_package(key: str) -> IO[bytes]:
-        components = key.split("/")
-        package_name = ".".join(["tzdata.zoneinfo"] + components[:-1])
-        resource_name = components[-1]
-        try:
-            return resources.files(package_name).joinpath(resource_name).open("rb")
-        except (ImportError, FileNotFoundError, UnicodeEncodeError) as exc:
-            raise FileNotFoundError(f"No time zone found with key {key!r}") from exc
+        return key

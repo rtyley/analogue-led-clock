@@ -1,15 +1,13 @@
 import re
-from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import IO
 
 
-@dataclass
 class PosixTzJulianDateTime:
-    day_of_year: int
-    hour: int
-    minute: int
-    second: int
+    def __init__(self, day_of_year: int, hour: int, minute: int, second: int):
+        self.day_of_year = day_of_year
+        self.hour = hour
+        self.minute = minute
+        self.second = second
 
     def _is_leap_year(self, year: int) -> bool:
         return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
@@ -25,12 +23,12 @@ class PosixTzJulianDateTime:
         )
 
 
-@dataclass
 class PosixTzOrdinalDateTime:
-    day_index: int  # 0..365 (includes Feb 29)
-    hour: int
-    minute: int
-    second: int
+    def __init__(self, day_index: int, hour: int, minute: int, second: int):
+        self.day_index = day_index  # 0..365 (includes Feb 29)
+        self.hour = hour
+        self.minute = minute
+        self.second = second
 
     def to_datetime(self, year: int) -> datetime:
         base = datetime(year, 1, 1)
@@ -42,14 +40,14 @@ class PosixTzOrdinalDateTime:
         )
 
 
-@dataclass
 class PosixTzDateTime:
-    month: int
-    week: int  # 1..5 (5 = last)
-    weekday: int  # POSIX: Sunday=0 ... Saturday=6
-    hour: int
-    minute: int
-    second: int
+    def __init__(self, month, week, weekday, hour, minute, second):
+        self.month = month
+        self.week = week  # 1..5 (5 = last)
+        self.weekday = weekday  # POSIX: Sunday=0 ... Saturday=6
+        self.hour = hour
+        self.minute = minute
+        self.second = second
 
     def to_datetime(self, year: int) -> datetime:
         # Convert POSIX weekday (Sun=0..Sat=6) to Python weekday (Mon=0..Sun=6)
@@ -95,7 +93,7 @@ def _split_posix_sections(posix_bytes: bytes) -> tuple[bytes, bytes, bytes]:
             depth -= 1
         elif b == ord(",") and depth == 0:
             sections.append(bytes(current))
-            current.clear()
+            current = bytearray()
             continue
 
         current.append(b)
@@ -115,15 +113,24 @@ def _split_posix_sections(posix_bytes: bytes) -> tuple[bytes, bytes, bytes]:
     raise ValueError("Too many comma-separated sections in POSIX TZ string")
 
 
-@dataclass
 class PosixTzInfo:
-    posix_string: str
-    standard_abbrev: str
-    utc_offset_secs: int
-    dst_abbrev: str | None
-    dst_offset_secs: int | None
-    dst_start: PosixTzDateTime | PosixTzJulianDateTime | PosixTzOrdinalDateTime | None
-    dst_end: PosixTzDateTime | PosixTzJulianDateTime | PosixTzOrdinalDateTime | None
+    def __init__(
+        self,
+        posix_string: str,
+        standard_abbrev: str,
+        utc_offset_secs: int,
+        dst_abbrev: str | None,
+        dst_offset_secs: int | None,
+        dst_start: PosixTzDateTime | PosixTzJulianDateTime | PosixTzOrdinalDateTime | None,
+        dst_end: PosixTzDateTime | PosixTzJulianDateTime | PosixTzOrdinalDateTime | None
+    ):
+        self.posix_string = posix_string
+        self.standard_abbrev = standard_abbrev
+        self.utc_offset_secs = utc_offset_secs
+        self.dst_abbrev = dst_abbrev
+        self.dst_offset_secs = dst_offset_secs
+        self.dst_start = dst_start
+        self.dst_end = dst_end
 
     @property
     def utc_offset_hours(self) -> float:
@@ -148,7 +155,7 @@ class PosixTzInfo:
         return self.dst_difference_secs / 3600
 
     @classmethod
-    def read(cls, file: IO[bytes]) -> "PosixTzInfo | None":
+    def read(cls, file) -> "PosixTzInfo | None":
         # Adapted from zoneinfo._zoneinfo._parse_tz_str
         _ = file.readline()
         posix_line = file.readline()
@@ -162,31 +169,28 @@ class PosixTzInfo:
         local_tz, dst_start, dst_end = _split_posix_sections(posix_string)
 
         local_tz_parser = re.compile(
-            r"""
-            (?P<std>[^<0-9:.+-]+|<[^>]+>)
-            (?:
-                (?P<stdoff>[+-]?\d{1,3}(?::\d{2}(?::\d{2})?)?)
-                (?:
-                    (?P<dst>[^0-9:.+-]+|<[^>]+>)
-                    (?P<dstoff>[+-]?\d{1,3}(?::\d{2}(?::\d{2})?)?)?
-                )? # dst
-            )? # stdoff
-            """,
-            re.ASCII | re.VERBOSE,
+            r"([^<0-9:.+-]+|<[^>]+>)"
+            r"(?:"
+            r"([+-]?\d{1,3}(?::\d{2}(?::\d{2})?)?)"
+            r"(?:"
+            r"([^0-9:.+-]+|<[^>]+>)"
+            r"([+-]?\d{1,3}(?::\d{2}(?::\d{2})?)?)?"
+            r")?"
+            r")?"
         )
-        local_tz_match = local_tz_parser.fullmatch(local_tz.decode("utf-8"))
-        if local_tz_match is None:
+        local_tz_match = local_tz_parser.match(local_tz_str)
+        if local_tz_match is None or local_tz_match.group(0) != local_tz_str:
             raise ValueError(f"{local_tz} is not a valid TZ string")
 
-        standard_abbrev = local_tz_match.group("std").strip("<>")
-        utc_offset = local_tz_match.group("stdoff")
+        standard_abbrev = local_tz_match.group(1).strip("<>")
+        utc_offset = local_tz_match.group(2)
         if utc_offset is None:
             raise ValueError(f"{local_tz!r} is missing required standard offset")
         utc_offset_secs = cls._read_offset(utc_offset)
-        dst_abbrev = local_tz_match.group("dst")
+        dst_abbrev = local_tz_match.group(3)
         if dst_abbrev:
             dst_abbrev = dst_abbrev.strip("<>")
-        dst_offset = local_tz_match.group("dstoff")
+        dst_offset = local_tz_match.group(4)
         if dst_offset:
             dst_offset_secs = cls._read_offset(dst_offset)
         elif dst_abbrev:
@@ -210,15 +214,17 @@ class PosixTzInfo:
     @classmethod
     def _read_offset(cls, posix_offset: str) -> int:
         # Adapted from zoneinfo._zoneinfo._parse_tz_delta
+        # Groups: 1=sign, 2=h, 3=:mm[:ss], 4=m, 5=:ss, 6=s
         offset_parser = re.compile(
-            r"(?P<sign>[+-])?(?P<h>\d{1,3})(:(?P<m>\d{2})(:(?P<s>\d{2}))?)?",
-            re.ASCII,
+            r"([+-])?(\d{1,3})(:(\d{2})(:(\d{2}))?)?",
         )
-        offset_match = offset_parser.fullmatch(posix_offset)
-        if offset_match is None:
+        offset_match = offset_parser.match(posix_offset)
+        if offset_match is None or offset_match.group(0) != posix_offset:
             raise ValueError(f"{posix_offset} is not a valid offset")
 
-        h, m, s = (int(v or 0) for v in offset_match.group("h", "m", "s"))
+        h = int(offset_match.group(2) or 0)
+        m = int(offset_match.group(4) or 0)
+        s = int(offset_match.group(6) or 0)
 
         # POSIX constraints:
         # - hours 0..24 (not >24)
@@ -235,7 +241,7 @@ class PosixTzInfo:
 
         total = h * 3600 + m * 60 + s
         # POSIX sign convention: positive means WEST of UTC => negative seconds
-        if offset_match.group("sign") != "-":
+        if offset_match.group(1) != "-":
             total = -total
 
         return total
@@ -252,10 +258,12 @@ class PosixTzInfo:
             return None
 
         if date.startswith("M"):
-            m = re.fullmatch(r"M(\d{1,2})\.(\d)\.(\d)", date)
+            m = re.match(r"M(\d{1,2})\.(\d)\.(\d)$", date)
             if m is None:
                 raise ValueError(f"Invalid dst start/end date: {posix_datetime}")
-            month, week, weekday = (int(x) for x in m.groups())
+            month = int(m.group(1))
+            week = int(m.group(2))
+            weekday = int(m.group(3))
             if not (1 <= month <= 12 and 1 <= week <= 5 and 0 <= weekday <= 6):
                 raise ValueError(f"Invalid M<m>.<w>.<d>: {posix_datetime}")
             return PosixTzDateTime(month, week, weekday, *trans_time)
@@ -278,15 +286,17 @@ class PosixTzInfo:
     @classmethod
     def _read_dst_transition_time(cls, time_str):
         # Adapted from zoneinfo._zoneinfo._parse_transition_time
+        # Groups: 1=sign, 2=h, 3=:mm[:ss], 4=m, 5=:ss, 6=s
         transition_time_parser = re.compile(
-            r"(?P<sign>[+-])?(?P<h>\d{1,3})(:(?P<m>\d{2})(:(?P<s>\d{2}))?)?",
-            re.ASCII,
+            r"([+-])?(\d{1,3})(:(\d{2})(:(\d{2}))?)?",
         )
-        match = transition_time_parser.fullmatch(time_str)
-        if match is None:
+        match = transition_time_parser.match(time_str)
+        if match is None or match.group(0) != time_str:
             raise ValueError(f"Invalid time: {time_str}")
 
-        h, m, s = (int(v or 0) for v in match.group("h", "m", "s"))
+        h = int(match.group(2) or 0)
+        m = int(match.group(4) or 0)
+        s = int(match.group(6) or 0)
 
         # bounds: hours 0..167, minutes/seconds 0..59
         if h > 167:
@@ -294,7 +304,7 @@ class PosixTzInfo:
         if not (0 <= m < 60 and 0 <= s < 60):
             raise ValueError(f"Minutes/seconds must be in [0, 59]: {time_str}")
 
-        if match.group("sign") == "-":
+        if match.group(1) == "-":
             h, m, s = -h, -m, -s
 
         return h, m, s
