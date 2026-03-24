@@ -1,19 +1,17 @@
 from datetime import datetime
 
-from machine import Pin, I2C
 import sys
 from DS3231.ds3231_gen import *
 from analogue_clock import AnalogueClock
 from holtek.ht1632c.driver import HT1632C
 from tzif_parser import TimeZoneInfo
 
-i2c = I2C(0, scl=Pin(29), sda=Pin(28))
+from accurate_rtc import ACCURATE_RTC
 
-d = DS3231(i2c)
-# d.set_time()
+# ACCURATE_RTC.set_time()
 
-print(d.get_time())
-d.alarm1.set(EVERY_SECOND)
+print(ACCURATE_RTC.get_time())
+ACCURATE_RTC.alarm1.set(EVERY_SECOND)
 print('******HELLO I AM THE MAIN CODE***')
 
 timezone_name = open('/timezone.txt').readline().strip()
@@ -30,10 +28,10 @@ ac.initialise()
 
 try:
     while True:
-        d.alarm1.clear()  # Clear pending alarm
-        while not d.alarm1():  # Wait for alarm
+        ACCURATE_RTC.alarm1.clear()  # Clear pending alarm
+        while not ACCURATE_RTC.alarm1():  # Wait for alarm
             pass
-        YY, MM, DD, hh, mm, ss, wday, _ = d.get_time()
+        YY, MM, DD, hh, mm, ss, wday, _ = ACCURATE_RTC.get_time()
 
         resolved = tz_info.resolve(datetime(YY, MM, DD, hh, mm, ss))
         print(f'local_time={resolved.local_time}')
