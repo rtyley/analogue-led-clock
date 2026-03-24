@@ -7,7 +7,7 @@ from analogue_clock import AnalogueClock
 from holtek.ht1632c.driver import HT1632C
 from tzif_parser import TimeZoneInfo
 
-i2c = I2C(0, scl=Pin(13), sda=Pin(12))
+i2c = I2C(0, scl=Pin(29), sda=Pin(28))
 
 d = DS3231(i2c)
 # d.set_time()
