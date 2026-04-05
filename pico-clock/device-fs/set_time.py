@@ -33,21 +33,27 @@ def readDeadlineAndTimeToDeadlineFromUSB():
 
 lastSecondPrinted = ACCURATE_RTC.get_time()[5]
 ticks_at_clock_second_transition = 0
-
+last_ticks_read = ticks_ms()
 while True:
     ds3231Time = ACCURATE_RTC.get_time()
     clock_read_at_ticks = ticks_ms()
-    secondsFromDS3231Time = ds3231Time[5]
-    if secondsFromDS3231Time != lastSecondPrinted:
-        ticks_at_clock_second_transition = clock_read_at_ticks % 1000
-        if secondsFromDS3231Time % 10 == 0:
-            print(f'DS3231 RTC : {ds3231Time}')
-            print(ACCURATE_RTC)
-        print(f'DS3231 seconds : {secondsFromDS3231Time} - ticks_at_clock_second_transition : {ticks_at_clock_second_transition}')
-        lastSecondPrinted = secondsFromDS3231Time
+    time_between_reads = ticks_diff(last_ticks_read, clock_read_at_ticks)
+    last_ticks_read = clock_read_at_ticks
+    loop_too_slow = time_between_reads > 1
+    if loop_too_slow:
+        print(f'time_between_reads TOO LONG: {time_between_reads}')
+    else:
+        secondsFromDS3231Time = ds3231Time[5]
+        if secondsFromDS3231Time != lastSecondPrinted:
+            ticks_at_clock_second_transition = clock_read_at_ticks % 1000
+            if secondsFromDS3231Time % 10 == 0:
+                print(f'DS3231 RTC : {ds3231Time}')
+                print(ACCURATE_RTC)
+            print(f'DS3231 seconds : {secondsFromDS3231Time} - ticks_at_clock_second_transition : {ticks_at_clock_second_transition}')
+            lastSecondPrinted = secondsFromDS3231Time
 
     receivedTimeDataFromUsb = readDeadlineAndTimeToDeadlineFromUSB()
-    if receivedTimeDataFromUsb:
+    if receivedTimeDataFromUsb and not loop_too_slow:
         deadLineFields, deadline_ticks, set_time = receivedTimeDataFromUsb
         (year, month, day, hour, minute, second, wday, yday) = deadLineFields
 
