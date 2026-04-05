@@ -115,6 +115,11 @@ class DS3231:
             offs += 1
             self.ds3231.writeto_mem(_ADDR, offs, gbyte(YY - 2000))
 
+    def set_aging_offset(self, value: int):
+        b = bytes([value & 0xFF])
+        print(f"aging_offset: {b}")
+        self.ds3231.writeto_mem(_ADDR, 0x10, b)
+
     def temperature(self):
         def twos_complement(input_value: int, num_bits: int) -> int:
             mask = 2 ** (num_bits - 1)

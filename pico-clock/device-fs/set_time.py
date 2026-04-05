@@ -5,6 +5,9 @@ from sys import stdin
 
 from accurate_rtc import ACCURATE_RTC
 
+ACCURATE_RTC.set_aging_offset(-10)
+print(ACCURATE_RTC.temperature())
+
 def readDeadlineAndTimeToDeadlineFromUSB():
     ch, buffer = '',''
     ticks_ms_for_read_instant = ticks_ms()
