@@ -23,7 +23,7 @@ print(tz_info)
 current_transition_index = tz_info.body.find_transition_index(datetime.now())
 print(current_transition_index)
 
-ac = AnalogueClock(HT1632C(base_pin_index=2, state_machine_id=0, freq = 10*1000*1000))
+ac = AnalogueClock(HT1632C(base_pin_index=2, state_machine_id=0, freq = 9375*1000)) # 10 MHz can occasionally give pulses that appear slightly too fast
 ac.initialise()
 
 try:
