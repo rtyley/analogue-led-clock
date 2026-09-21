@@ -20,14 +20,14 @@ jobs:
       contents: read    # This is required for actions/checkout
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-      - uses: guardian/setup-scala@v1
-      - uses: aws-actions/configure-aws-credentials@v5
+        uses: actions/checkout@v7
+      - uses: guardian/setup-scala@v2
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/logic-capture-github-actions-client"
           aws-region: eu-west-1
       - name: Build & test
-        run: sbt -v test
+        run: sbt -v testFull
         env:
           LOGIC_CAPTURE_AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           LOGIC_CAPTURE_REPO_CLONE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
