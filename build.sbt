@@ -1,4 +1,4 @@
-scalaVersion := "3.3.7"
+scalaVersion := "3.9.0"
 
 Test / testOptions +=
   Tests.Argument(TestFrameworks.ScalaTest, "-u", s"test-results/scala-${scalaVersion.value}", "-o")
