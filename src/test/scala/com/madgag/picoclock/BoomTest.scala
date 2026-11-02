@@ -26,6 +26,8 @@ import com.madgag.logic.time.{Time, TimeParser, Timed, TimedF}
 import com.madgag.micropython.logiccapture.model.*
 import com.madgag.picoclock.RemoteCaptureUtil.{deviceFS, remoteCaptureClient}
 import com.madgag.scala.collection.decorators.*
+import com.madgag.testing.duration.{*, given}
+import com.madgag.testing.{fallWithin, ±}
 import org.scalatest.Inside.inside
 import org.scalatest.Inspectors.forAll
 import org.scalatest.OptionValues
@@ -102,7 +104,6 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       val updateStates = updates.map(_.value.collect {
         case cv@ChipVal(_, w: WriteMode) => cv.copy(value = w)
       }.resultingChipLedState)
-
       updateStates.head.filter(_._2).keySet shouldBe AnalogueClockSpecification.ledsFor(0, 0)
       println(s"updateStates=${updateStates.size}")
       forAll(updateStates.zipWithIndex) {
@@ -117,13 +118,13 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       val startTimes = updates.map(_.interval.lowerValueBound.a)
       val durations: Seq[Delta] = startTimes.zip(startTimes.tail).map(Time.between)
       val numSamples = durations.size
-      val avg = durations.reduce(_ plus _).dividedBy(numSamples)
+      val avg = durations.reduce(_ `plus` _).dividedBy(numSamples)
+
       println(s"avg=${avg.truncatedTo(MICROS).format(2)} samples=$numSamples")
       forAll(durations) { duration =>
-        duration.minus(avg).abs shouldBe < (avg.dividedBy(50))
+        duration should fallWithin (avg ± 80.μs)
       }
-      val expected = Duration.of(3272, MICROS)
-      avg.minus(expected).abs shouldBe < (expected.dividedBy(60))
+      avg should fallWithin (3272.μs ± 8.μs)
 
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>
@@ -158,7 +159,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
   private def writeOutFileForReference(deglitchedSignal: ChannelSignals[Delta, Channel]): Unit = {
     val tmpFile = os.temp(deleteOnExit = false).toIO
-    Foo.write(deglitchedSignal, SaleaeCsv.csvDetails(TimeParser.DeltaParser, gpioMapping))(CSVWriter.open(tmpFile)(SaleaeCsv.CsvFormat))
+    Foo.write(deglitchedSignal, SaleaeCsv.csvDetails(TimeParser.DeltaParser, gpioMapping))(CSVWriter.open(tmpFile)(using SaleaeCsv.CsvFormat))
     println(tmpFile.getAbsolutePath)
   }
 }
