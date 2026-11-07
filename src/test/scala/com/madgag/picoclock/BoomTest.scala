@@ -26,6 +26,7 @@ import com.madgag.logic.time.{Time, TimeParser, Timed, TimedF}
 import com.madgag.micropython.logiccapture.model.*
 import com.madgag.picoclock.RemoteCaptureUtil.{deviceFS, remoteCaptureClient}
 import com.madgag.scala.collection.decorators.*
+import com.madgag.testing.{fallWithin, ±, μs}
 import org.scalatest.Inside.inside
 import org.scalatest.Inspectors.forAll
 import org.scalatest.OptionValues
@@ -34,6 +35,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should
 import org.scalatest.time.{Millis, Seconds, Span}
 import scodec.bits.BitVector
+import spire.algebra.MetricSpace
 import spire.math.Interval
 
 import java.time.Duration
@@ -42,6 +44,13 @@ import java.time.temporal.ChronoUnit.MICROS
 import scala.collection.immutable.{SortedMap, SortedSet}
 
 class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with ScalaFutures {
+
+  given MetricSpace[Duration, Duration] with
+    def distance(v: Duration, w: Duration): Duration = v.minus(w).abs()
+
+  given Order[Duration] = Order.fromComparable[Duration]
+
+  given Show[Duration] = Show.show { _.format() }
 
   implicit override val patienceConfig: PatienceConfig = PatienceConfig(
     timeout = scaled(Span(300, Seconds)),
@@ -117,13 +126,11 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
       val startTimes = updates.map(_.interval.lowerValueBound.a)
       val durations: Seq[Delta] = startTimes.zip(startTimes.tail).map(Time.between)
       val numSamples = durations.size
-      val avg = durations.reduce(_ plus _).dividedBy(numSamples)
+      val avg = durations.reduce(_ `plus` _).dividedBy(numSamples)
+
       println(s"avg=${avg.truncatedTo(MICROS).format(2)} samples=$numSamples")
-      forAll(durations) { duration =>
-        duration.minus(avg).abs shouldBe < (avg.dividedBy(50))
-      }
-      val expected = Duration.of(3272, MICROS)
-      avg.minus(expected).abs shouldBe < (expected.dividedBy(60))
+      forAll(durations) { _ should fallWithin (avg ± 80.μs) }
+      avg should fallWithin (3272.μs ± 8.μs)
 
       val justWrites = writeCommands.dropTime
       forAll(justWrites.take(1)) { chipVal =>
@@ -158,7 +165,7 @@ class BoomTest extends AnyFlatSpec with should.Matchers with OptionValues with S
 
   private def writeOutFileForReference(deglitchedSignal: ChannelSignals[Delta, Channel]): Unit = {
     val tmpFile = os.temp(deleteOnExit = false).toIO
-    Foo.write(deglitchedSignal, SaleaeCsv.csvDetails(TimeParser.DeltaParser, gpioMapping))(CSVWriter.open(tmpFile)(SaleaeCsv.CsvFormat))
+    Foo.write(deglitchedSignal, SaleaeCsv.csvDetails(TimeParser.DeltaParser, gpioMapping))(CSVWriter.open(tmpFile)(using SaleaeCsv.CsvFormat))
     println(tmpFile.getAbsolutePath)
   }
 }
